@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block subtitle %}Sign in{% endblock %}
+{% block content %}
+<div class="card login-card">
+  {% if error %}<div class="error">{{ error }}</div>{% endif %}
+  <h2>Enter your password</h2>
+  <form method="post" action="{{ url_for('login') }}" style="display:flex; flex-direction:column; gap:10px;">
+    <input type="password" name="password" placeholder="Password" autofocus required>
+    <button type="submit" class="primary">Sign in</button>
+  </form>
+</div>
+{% endblock %}

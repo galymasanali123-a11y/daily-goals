@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block subtitle %}<span id="today-label">{{ state.today }}</span>{% endblock %}
+{% block content %}
+
+<div class="stat-row">
+  <div class="stat-tile">
+    <div class="value" id="stat-done">{{ state.done_count }}/{{ state.total_count }}</div>
+    <div class="label">Today</div>
+  </div>
+  <div class="stat-tile">
+    <div class="value" id="stat-streak">🔥 {{ state.streak }}</div>
+    <div class="label">Day streak</div>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Last 7 days</h2>
+  <div id="history-strip" class="history-strip"></div>
+</div>
+
+<div class="card">
+  <h2>Today's goals</h2>
+  <div id="goals-list">
+    {% if not state.goals %}
+      <div class="empty-state" id="empty-state">No goals yet — add one below to get started.</div>
+    {% endif %}
+    {% for goal in state.goals %}
+      <div class="goal-row" data-id="{{ goal.id }}">
+        <div class="reorder-col">
+          <button class="reorder-btn" data-dir="up" title="Move up">▲</button>
+          <button class="reorder-btn" data-dir="down" title="Move down">▼</button>
+        </div>
+        <button class="goal-toggle {{ 'done' if goal.done else '' }}">
+          <span class="checkbox">{{ '✓' if goal.done else '' }}</span>
+          <span class="goal-text">{{ goal.text }}</span>
+        </button>
+        <button class="icon-btn edit-btn" title="Edit">✎</button>
+        <button class="icon-btn delete-btn" title="Delete">✕</button>
+      </div>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="card">
+  <h2>Add a goal</h2>
+  <form class="add-goal" id="add-goal-form">
+    <input type="text" name="text" id="add-goal-input" placeholder="e.g. Make the bed" required>
+    <button type="submit" class="primary">Add</button>
+  </form>
+</div>
+
+<a class="muted-link" href="{{ url_for('logout') }}">Sign out</a>
+
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='app.js') }}"></script>
+{% endblock %}

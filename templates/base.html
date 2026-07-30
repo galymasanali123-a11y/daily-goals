@@ -1,0 +1,326 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<title>{% block title %}Daily Goals{% endblock %}</title>
+
+<link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}">
+<meta name="theme-color" content="#0f2438">
+
+<!-- iOS: makes "Add to Home Screen" open full-screen, no Safari chrome -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Daily Goals">
+<link rel="apple-touch-icon" href="{{ url_for('static', filename='icons/apple-touch-icon.png') }}">
+
+<link rel="icon" href="{{ url_for('static', filename='icons/icon-192.png') }}">
+<style>
+  :root {
+    --bg: #eef3f6;
+    --navy: #0f2438;
+    --accent: #0d9488;
+    --accent-hover: #0b7c72;
+    --text-primary: #101b2a;
+    --text-muted: #5b7683;
+    --text-body: #3d4c5c;
+    --card-bg: #ffffff;
+    --correct: #16a34a;
+    --danger: #dc2626;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text-primary);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  header.top {
+    width: 100%;
+    background: var(--navy);
+    color: white;
+    padding: 18px 20px;
+    text-align: center;
+  }
+  header.top h1 {
+    margin: 0;
+    font-size: 1.3rem;
+    letter-spacing: 0.02em;
+  }
+  header.top p {
+    margin: 4px 0 0;
+    font-size: 0.8rem;
+    color: #8fb4c4;
+  }
+  main {
+    width: 100%;
+    max-width: 480px;
+    padding: 20px 16px 60px;
+  }
+  .card {
+    background: var(--card-bg);
+    border-radius: 14px;
+    padding: 18px;
+    margin-bottom: 16px;
+    box-shadow: 0 1px 3px rgba(15, 36, 56, 0.08);
+  }
+  .stat-row {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+  .stat-tile {
+    flex: 1;
+    background: var(--card-bg);
+    border-radius: 14px;
+    padding: 14px;
+    text-align: center;
+    box-shadow: 0 1px 3px rgba(15, 36, 56, 0.08);
+  }
+  .stat-tile .value {
+    font-size: 1.5rem;
+    font-weight: 700;
+  }
+  .stat-tile .label {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    margin-top: 2px;
+  }
+  .goal-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 4px;
+    border-bottom: 1px solid #eef1f3;
+  }
+  .goal-row:last-child { border-bottom: none; }
+  .reorder-col {
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+  }
+  .reorder-btn {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 0.6rem;
+    line-height: 1.4;
+    padding: 2px 4px;
+    cursor: pointer;
+  }
+  .reorder-btn:hover { color: var(--accent); }
+  .reorder-btn:disabled { opacity: 0.25; cursor: default; }
+  .goal-toggle {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: none;
+    border: none;
+    text-align: left;
+    padding: 4px 0;
+    font-size: 0.98rem;
+    color: var(--text-primary);
+    cursor: pointer;
+  }
+  .goal-text { overflow-wrap: anywhere; }
+  .goal-edit-input {
+    flex: 1;
+    padding: 8px 10px;
+    border-radius: 8px;
+    border: 1px solid var(--accent);
+    font-size: 0.95rem;
+    background: #f7fafb;
+    color: var(--text-primary);
+  }
+  .icon-btn {
+    flex-shrink: 0;
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 0.95rem;
+    padding: 6px;
+    cursor: pointer;
+  }
+  .icon-btn:hover { color: var(--text-primary); }
+  .delete-btn:hover { color: var(--danger); }
+  .history-strip {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+    height: 64px;
+  }
+  .history-day {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-end;
+    height: 100%;
+    gap: 4px;
+  }
+  .history-bar {
+    width: 100%;
+    max-width: 26px;
+    border-radius: 6px 6px 3px 3px;
+    background: #e4ebee;
+    min-height: 4px;
+    transition: height 0.2s ease;
+  }
+  .history-bar.has-activity { background: var(--accent); }
+  .history-bar.is-today { background: var(--navy); }
+  .history-label {
+    font-size: 0.65rem;
+    color: var(--text-muted);
+  }
+  .checkbox {
+    flex-shrink: 0;
+    width: 26px;
+    height: 26px;
+    border-radius: 8px;
+    border: 2px solid #c8d4da;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1rem;
+  }
+  .goal-toggle.done .checkbox {
+    background: var(--correct);
+    border-color: var(--correct);
+    color: white;
+  }
+  .goal-toggle.done .goal-text {
+    color: var(--text-muted);
+    text-decoration: line-through;
+  }
+  .delete-form button {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    padding: 6px;
+    cursor: pointer;
+  }
+  .delete-form button:hover { color: var(--danger); }
+  .empty-state {
+    color: var(--text-muted);
+    font-size: 0.9rem;
+    text-align: center;
+    padding: 20px 0;
+  }
+  form.add-goal {
+    display: flex;
+    gap: 8px;
+    margin-top: 4px;
+  }
+  input[type="text"], input[type="password"] {
+    flex: 1;
+    padding: 12px;
+    border-radius: 10px;
+    border: 1px solid #d3dee2;
+    font-size: 1rem;
+    background: #f7fafb;
+    color: var(--text-primary);
+  }
+  button.primary {
+    background: var(--accent);
+    color: white;
+    border: none;
+    border-radius: 10px;
+    padding: 12px 18px;
+    font-size: 0.95rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  button.primary:hover { background: var(--accent-hover); }
+  .muted-link {
+    display: block;
+    text-align: center;
+    margin-top: 20px;
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    text-decoration: none;
+  }
+  .error {
+    background: #fde8e8;
+    color: var(--danger);
+    padding: 10px 14px;
+    border-radius: 10px;
+    margin-bottom: 14px;
+    font-size: 0.9rem;
+  }
+  .login-card {
+    margin-top: 20vh;
+  }
+  h2 {
+    font-size: 1rem;
+    margin: 0 0 12px;
+    color: var(--text-body);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0b1620;
+      --card-bg: #142230;
+      --text-primary: #f1f5f7;
+      --text-body: #cfd9de;
+      --text-muted: #8fb4c4;
+    }
+    input[type="text"], input[type="password"] {
+      background: #0f2438;
+      border-color: #24425a;
+      color: var(--text-primary);
+    }
+    .goal-row { border-bottom-color: #1c3145; }
+  }
+  /* Respect the iPhone notch / home-indicator safe areas when installed full-screen */
+  header.top {
+    padding-top: calc(18px + env(safe-area-inset-top));
+  }
+  main {
+    padding-bottom: calc(60px + env(safe-area-inset-bottom));
+  }
+  .toast {
+    position: fixed;
+    left: 50%;
+    bottom: calc(20px + env(safe-area-inset-bottom));
+    transform: translateX(-50%) translateY(20px);
+    background: var(--navy);
+    color: white;
+    padding: 10px 18px;
+    border-radius: 999px;
+    font-size: 0.85rem;
+    opacity: 0;
+    transition: opacity 0.2s ease, transform 0.2s ease;
+    pointer-events: none;
+    z-index: 50;
+  }
+  .toast.show {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>Daily Goals</h1>
+  <p>{% block subtitle %}Your daily routine tracker{% endblock %}</p>
+</header>
+<main>
+  {% block content %}{% endblock %}
+</main>
+<div id="toast" class="toast"></div>
+<script>
+  if ("serviceWorker" in navigator) {
+    window.addEventListener("load", () => {
+      navigator.serviceWorker.register("/sw.js").catch(() => {});
+    });
+  }
+</script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

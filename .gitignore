@@ -1,0 +1,4 @@
+daily_goals.db
+__pycache__/
+*.pyc
+.env
