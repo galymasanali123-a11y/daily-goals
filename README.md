@@ -57,3 +57,5 @@ Using [Render.com](https://render.com)'s free tier — no credit card needed.
 - `templates/` — mobile-first pages (login, dashboard)
 - `render.yaml` — one-click Render deployment config
 - `requirements.txt` — Flask + gunicorn (the production server Render runs)
+
+<!-- persistence test marker: Fri Jul 31 01:27:11 QST 2026 -->
