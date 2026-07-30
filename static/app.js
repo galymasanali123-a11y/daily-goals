@@ -2,6 +2,7 @@
   "use strict";
 
   const goalsList = document.getElementById("goals-list");
+  const syncedList = document.getElementById("synced-list");
   const statDone = document.getElementById("stat-done");
   const statStreak = document.getElementById("stat-streak");
   const addForm = document.getElementById("add-goal-form");
@@ -58,15 +59,34 @@
     return div.innerHTML;
   }
 
+  function syncedRowHTML(task) {
+    const doneClass = task.done ? "done" : "";
+    const check = task.done ? "✓" : "";
+    const prefix = task.time ? `${task.time} ` : "";
+    return `
+      <div class="goal-row synced-row" data-id="${task.id}">
+        <button class="goal-toggle synced-toggle ${doneClass}">
+          <span class="checkbox">${check}</span>
+          <span class="goal-text">${escapeHTML(prefix + task.text)}</span>
+        </button>
+      </div>`;
+  }
+
   function renderState(state) {
     statDone.textContent = `${state.done_count}/${state.total_count}`;
     statStreak.textContent = `🔥 ${state.streak}`;
 
     if (state.goals.length === 0) {
       goalsList.innerHTML = '<div class="empty-state">No goals yet — add one below to get started.</div>';
-      return;
+    } else {
+      goalsList.innerHTML = state.goals.map((goal, index) => goalRowHTML(goal, index, state.goals.length)).join("");
     }
-    goalsList.innerHTML = state.goals.map((goal, index) => goalRowHTML(goal, index, state.goals.length)).join("");
+
+    // The synced-tasks card only exists in the DOM if there was at least one at page load;
+    // if it's there, keep it live too. (A brand-new sync while the page is open needs a reload to appear.)
+    if (syncedList && state.synced_tasks) {
+      syncedList.innerHTML = state.synced_tasks.map(syncedRowHTML).join("");
+    }
   }
 
   function renderHistory(data) {
@@ -93,6 +113,19 @@
     } catch (error) {
       // history is a nice-to-have; a silent failure here shouldn't block the rest of the app
     }
+  }
+
+  if (syncedList) {
+    syncedList.addEventListener("click", async (event) => {
+      const row = event.target.closest(".synced-row");
+      if (!row || !event.target.closest(".synced-toggle")) return;
+      try {
+        renderState(await api(`/api/synced-tasks/${row.dataset.id}/toggle`, { method: "POST" }));
+        refreshHistory();
+      } catch (error) {
+        showToast(error.message);
+      }
+    });
   }
 
   goalsList.addEventListener("click", async (event) => {

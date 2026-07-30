@@ -18,6 +18,23 @@
   <div id="history-strip" class="history-strip"></div>
 </div>
 
+{% if state.synced_tasks %}
+<div class="card" id="synced-card">
+  <h2>🖥️ Today's Planner tasks (from desktop)</h2>
+  <div id="synced-list">
+    {% for task in state.synced_tasks %}
+      <div class="goal-row synced-row" data-id="{{ task.id }}">
+        <button class="goal-toggle synced-toggle {{ 'done' if task.done else '' }}">
+          <span class="checkbox">{{ '✓' if task.done else '' }}</span>
+          <span class="goal-text">{{ (task.time + ' ') if task.time else '' }}{{ task.text }}</span>
+        </button>
+      </div>
+    {% endfor %}
+  </div>
+  <p class="sync-note">Synced from your desktop Planner. Check one off here and it'll show as done next time you sync.</p>
+</div>
+{% endif %}
+
 <div class="card">
   <h2>Today's goals</h2>
   <div id="goals-list">

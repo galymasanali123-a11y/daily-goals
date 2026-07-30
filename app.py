@@ -62,6 +62,19 @@ def init_db():
             PRIMARY KEY (goal_id, date)
         )"""
     )
+    db.execute(
+        """CREATE TABLE IF NOT EXISTS synced_tasks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL REFERENCES users(id),
+            external_id TEXT NOT NULL,
+            date TEXT NOT NULL,
+            text TEXT NOT NULL,
+            time TEXT NOT NULL DEFAULT '',
+            task_type TEXT NOT NULL DEFAULT 'Task',
+            done INTEGER NOT NULL DEFAULT 0,
+            UNIQUE(user_id, external_id)
+        )"""
+    )
     db.commit()
     db.close()
 
@@ -136,13 +149,20 @@ def today_str():
 
 
 def compute_streak(db, user_id):
-    """Consecutive days (ending today) with at least one goal completed, for this user."""
-    rows = db.execute(
-        "SELECT DISTINCT c.date FROM completions c JOIN goals g ON g.id = c.goal_id "
-        "WHERE g.user_id = ? AND c.done = 1",
-        (user_id,),
-    ).fetchall()
-    done_dates = {row["date"] for row in rows}
+    """Consecutive days (ending today) with at least one goal or synced task completed, for this user."""
+    goal_dates = {
+        row["date"]
+        for row in db.execute(
+            "SELECT DISTINCT c.date FROM completions c JOIN goals g ON g.id = c.goal_id "
+            "WHERE g.user_id = ? AND c.done = 1",
+            (user_id,),
+        )
+    }
+    synced_dates = {
+        row["date"]
+        for row in db.execute("SELECT DISTINCT date FROM synced_tasks WHERE user_id = ? AND done = 1", (user_id,))
+    }
+    done_dates = goal_dates | synced_dates
     streak = 0
     day = datetime.date.today()
     while day.isoformat() in done_dates:
@@ -165,13 +185,36 @@ def goals_with_status(db, user_id):
     return [{"id": goal["id"], "text": goal["text"], "done": completions.get(goal["id"], False)} for goal in goals]
 
 
+def synced_tasks_for_today(db, user_id):
+    today = today_str()
+    rows = db.execute(
+        "SELECT id, external_id, text, time, task_type, done FROM synced_tasks "
+        "WHERE user_id = ? AND date = ? ORDER BY time, id",
+        (user_id, today),
+    ).fetchall()
+    return [
+        {
+            "id": row["id"],
+            "external_id": row["external_id"],
+            "text": row["text"],
+            "time": row["time"],
+            "task_type": row["task_type"],
+            "done": bool(row["done"]),
+        }
+        for row in rows
+    ]
+
+
 def current_state(db, user_id):
     goal_rows = goals_with_status(db, user_id)
-    done_count = sum(1 for goal in goal_rows if goal["done"])
+    synced_rows = synced_tasks_for_today(db, user_id)
+    done_count = sum(1 for goal in goal_rows if goal["done"]) + sum(1 for task in synced_rows if task["done"])
+    total_count = len(goal_rows) + len(synced_rows)
     return {
         "goals": goal_rows,
+        "synced_tasks": synced_rows,
         "done_count": done_count,
-        "total_count": len(goal_rows),
+        "total_count": total_count,
         "streak": compute_streak(db, user_id),
         "today": today_str(),
         "username": session.get("username"),
@@ -304,6 +347,71 @@ def api_move_goal(goal_id):
         db.execute("UPDATE goals SET sort_order = ? WHERE id = ?", (goal_b["sort_order"], goal_a["id"]))
         db.execute("UPDATE goals SET sort_order = ? WHERE id = ?", (goal_a["sort_order"], goal_b["id"]))
         db.commit()
+    return jsonify(current_state(db, user_id))
+
+
+@app.route("/api/sync", methods=["POST"])
+@login_required
+def api_sync():
+    """Push today's desktop Planner tasks; completions merge (OR) so a phone check-off is never lost."""
+    payload = request.get_json(silent=True) or {}
+    incoming_tasks = payload.get("tasks", [])
+    if not isinstance(incoming_tasks, list):
+        return jsonify({"error": "tasks must be a list"}), 400
+
+    db = get_db()
+    user_id = session["user_id"]
+    today = today_str()
+
+    incoming_ids = set()
+    for task in incoming_tasks:
+        external_id = str(task.get("external_id", "")).strip()
+        text = str(task.get("text", "")).strip()
+        if not external_id or not text:
+            continue
+        incoming_ids.add(external_id)
+        time_value = str(task.get("time", ""))
+        task_type = str(task.get("task_type", "Task"))
+        incoming_done = 1 if task.get("done") else 0
+
+        existing = db.execute(
+            "SELECT done FROM synced_tasks WHERE user_id = ? AND external_id = ?",
+            (user_id, external_id),
+        ).fetchone()
+        merged_done = 1 if incoming_done or (existing and existing["done"]) else 0
+
+        db.execute(
+            "INSERT INTO synced_tasks (user_id, external_id, date, text, time, task_type, done) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(user_id, external_id) DO UPDATE SET "
+            "date = excluded.date, text = excluded.text, time = excluded.time, "
+            "task_type = excluded.task_type, done = ?",
+            (user_id, external_id, today, text, time_value, task_type, merged_done, merged_done),
+        )
+
+    # A task no longer reported by the desktop for today (deleted/renamed there) drops out here too.
+    existing_today = db.execute(
+        "SELECT id, external_id FROM synced_tasks WHERE user_id = ? AND date = ?", (user_id, today)
+    ).fetchall()
+    for row in existing_today:
+        if row["external_id"] not in incoming_ids:
+            db.execute("DELETE FROM synced_tasks WHERE id = ?", (row["id"],))
+
+    db.commit()
+    return jsonify(current_state(db, user_id))
+
+
+@app.route("/api/synced-tasks/<int:task_id>/toggle", methods=["POST"])
+@login_required
+def api_toggle_synced_task(task_id):
+    db = get_db()
+    user_id = session["user_id"]
+    row = db.execute("SELECT done FROM synced_tasks WHERE id = ? AND user_id = ?", (task_id, user_id)).fetchone()
+    if not row:
+        return jsonify({"error": "not found"}), 404
+    new_done = 0 if row["done"] else 1
+    db.execute("UPDATE synced_tasks SET done = ? WHERE id = ?", (new_done, task_id))
+    db.commit()
     return jsonify(current_state(db, user_id))
 
 
