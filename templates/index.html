@@ -49,7 +49,7 @@
   </form>
 </div>
 
-<a class="muted-link" href="{{ url_for('logout') }}">Sign out</a>
+<a class="muted-link" href="{{ url_for('logout') }}">Signed in as {{ state.username }} — sign out</a>
 
 {% endblock %}
 {% block scripts %}
