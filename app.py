@@ -59,9 +59,16 @@ def init_db():
         """CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT UNIQUE NOT NULL,
+            email TEXT NOT NULL DEFAULT '',
             password_hash TEXT NOT NULL
         )"""
     )
+    # Migrate a database created before the email column existed.
+    user_columns = {row["name"] for row in db.execute("PRAGMA table_info(users)").rows}
+    if "email" not in user_columns:
+        db.execute("ALTER TABLE users ADD COLUMN email TEXT NOT NULL DEFAULT ''")
+    # A real (case-insensitive) uniqueness guarantee — "Alice" and "alice" can't both register.
+    db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username_nocase ON users(username COLLATE NOCASE)")
     db.execute(
         """CREATE TABLE IF NOT EXISTS goals (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -110,28 +117,35 @@ def register():
     error = None
     if request.method == "POST":
         username = request.form.get("username", "").strip()
+        email = request.form.get("email", "").strip()
         password = request.form.get("password", "")
         confirm = request.form.get("confirm", "")
-        if not username or not password:
-            error = "Username and password are required."
+        if not username or not email or not password:
+            error = "Username, email, and password are all required."
+        elif "@" not in email or "." not in email.split("@")[-1]:
+            error = "Enter a valid email address."
         elif password != confirm:
             error = "Passwords don't match."
         elif len(password) < 4:
             error = "Password must be at least 4 characters."
         else:
             db = get_db()
-            existing = query_one(db, "SELECT id FROM users WHERE username = ?", (username,))
+            existing = query_one(db, "SELECT id FROM users WHERE username = ? COLLATE NOCASE", (username,))
             if existing:
                 error = "That username is already taken."
             else:
-                result = db.execute(
-                    "INSERT INTO users (username, password_hash) VALUES (?, ?)",
-                    (username, generate_password_hash(password)),
-                )
-                session["user_id"] = result.last_insert_rowid
-                session["username"] = username
-                session.permanent = True
-                return redirect(url_for("index"))
+                try:
+                    result = db.execute(
+                        "INSERT INTO users (username, email, password_hash) VALUES (?, ?, ?)",
+                        (username, email, generate_password_hash(password)),
+                    )
+                except Exception:
+                    error = "That username is already taken."
+                else:
+                    session["user_id"] = result.last_insert_rowid
+                    session["username"] = username
+                    session.permanent = True
+                    return redirect(url_for("index"))
     return render_template("register.html", error=error)
 
 
@@ -142,7 +156,7 @@ def login():
         username = request.form.get("username", "").strip()
         password = request.form.get("password", "")
         db = get_db()
-        user = query_one(db, "SELECT * FROM users WHERE username = ?", (username,))
+        user = query_one(db, "SELECT * FROM users WHERE username = ? COLLATE NOCASE", (username,))
         if user and check_password_hash(user["password_hash"], password):
             session["user_id"] = user["id"]
             session["username"] = user["username"]

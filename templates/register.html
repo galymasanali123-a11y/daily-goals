@@ -6,6 +6,7 @@
   <h2>Create your account</h2>
   <form method="post" action="{{ url_for('register') }}" style="display:flex; flex-direction:column; gap:10px;">
     <input type="text" name="username" placeholder="Choose a username" autocapitalize="none" autofocus required>
+    <input type="email" name="email" placeholder="Email address" autocapitalize="none" required>
     <input type="password" name="password" placeholder="Password (min 4 characters)" required>
     <input type="password" name="confirm" placeholder="Confirm password" required>
     <button type="submit" class="primary">Create account</button>
