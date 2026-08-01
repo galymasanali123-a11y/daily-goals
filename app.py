@@ -1,32 +1,48 @@
 """Daily Goals — a small, mobile-friendly daily routine tracker, installable as a PWA.
 
 Multi-user: each person registers their own account and sees only their own goals.
+Storage is libSQL (SQLite-compatible): a local file when run locally, or a Turso
+database in production so data survives redeploys (Render's local disk doesn't).
+
 Run locally with: py app.py
-Deploy: see README.md for Render.com instructions.
+Deploy: see README.md for Render.com + Turso instructions.
 """
 
 import datetime
 import os
-import sqlite3
 from functools import wraps
 from pathlib import Path
 
+import libsql_client
 from flask import Flask, g, jsonify, redirect, render_template, request, send_from_directory, session, url_for
 from werkzeug.security import check_password_hash, generate_password_hash
 
 SECRET_KEY = os.environ.get("SECRET_KEY", "dev-secret-change-in-production")
-DB_PATH = Path(os.environ.get("DB_PATH", "daily_goals.db"))
+TURSO_DATABASE_URL = os.environ.get("TURSO_DATABASE_URL")
+TURSO_AUTH_TOKEN = os.environ.get("TURSO_AUTH_TOKEN")
+DB_URL = TURSO_DATABASE_URL or f"file:{os.environ.get('DB_PATH', 'daily_goals.db')}"
 STATIC_DIR = Path(__file__).parent / "static"
 
 app = Flask(__name__)
 app.secret_key = SECRET_KEY
 
 
+def connect_db():
+    return libsql_client.create_client_sync(DB_URL, auth_token=TURSO_AUTH_TOKEN)
+
+
+def query_one(db, sql, params=()):
+    rows = db.execute(sql, params).rows
+    return rows[0] if rows else None
+
+
+def query_all(db, sql, params=()):
+    return db.execute(sql, params).rows
+
+
 def get_db():
     if "db" not in g:
-        g.db = sqlite3.connect(DB_PATH)
-        g.db.row_factory = sqlite3.Row
-        g.db.execute("PRAGMA foreign_keys = ON")
+        g.db = connect_db()
     return g.db
 
 
@@ -38,7 +54,7 @@ def close_db(exception=None):
 
 
 def init_db():
-    db = sqlite3.connect(DB_PATH)
+    db = connect_db()
     db.execute(
         """CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -75,7 +91,6 @@ def init_db():
             UNIQUE(user_id, external_id)
         )"""
     )
-    db.commit()
     db.close()
 
 
@@ -105,16 +120,15 @@ def register():
             error = "Password must be at least 4 characters."
         else:
             db = get_db()
-            existing = db.execute("SELECT id FROM users WHERE username = ?", (username,)).fetchone()
+            existing = query_one(db, "SELECT id FROM users WHERE username = ?", (username,))
             if existing:
                 error = "That username is already taken."
             else:
-                cursor = db.execute(
+                result = db.execute(
                     "INSERT INTO users (username, password_hash) VALUES (?, ?)",
                     (username, generate_password_hash(password)),
                 )
-                db.commit()
-                session["user_id"] = cursor.lastrowid
+                session["user_id"] = result.last_insert_rowid
                 session["username"] = username
                 session.permanent = True
                 return redirect(url_for("index"))
@@ -128,7 +142,7 @@ def login():
         username = request.form.get("username", "").strip()
         password = request.form.get("password", "")
         db = get_db()
-        user = db.execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
+        user = query_one(db, "SELECT * FROM users WHERE username = ?", (username,))
         if user and check_password_hash(user["password_hash"], password):
             session["user_id"] = user["id"]
             session["username"] = user["username"]
@@ -152,15 +166,16 @@ def compute_streak(db, user_id):
     """Consecutive days (ending today) with at least one goal or synced task completed, for this user."""
     goal_dates = {
         row["date"]
-        for row in db.execute(
-            "SELECT DISTINCT c.date FROM completions c JOIN goals g ON g.id = c.goal_id "
+        for row in query_all(
+            db,
+            "SELECT DISTINCT c.date AS date FROM completions c JOIN goals g ON g.id = c.goal_id "
             "WHERE g.user_id = ? AND c.done = 1",
             (user_id,),
         )
     }
     synced_dates = {
         row["date"]
-        for row in db.execute("SELECT DISTINCT date FROM synced_tasks WHERE user_id = ? AND done = 1", (user_id,))
+        for row in query_all(db, "SELECT DISTINCT date FROM synced_tasks WHERE user_id = ? AND done = 1", (user_id,))
     }
     done_dates = goal_dates | synced_dates
     streak = 0
@@ -172,12 +187,13 @@ def compute_streak(db, user_id):
 
 
 def goals_with_status(db, user_id):
-    goals = db.execute("SELECT * FROM goals WHERE user_id = ? ORDER BY sort_order", (user_id,)).fetchall()
+    goals = query_all(db, "SELECT * FROM goals WHERE user_id = ? ORDER BY sort_order", (user_id,))
     today = today_str()
     completions = {
         row["goal_id"]: bool(row["done"])
-        for row in db.execute(
-            "SELECT c.goal_id, c.done FROM completions c JOIN goals g ON g.id = c.goal_id "
+        for row in query_all(
+            db,
+            "SELECT c.goal_id AS goal_id, c.done AS done FROM completions c JOIN goals g ON g.id = c.goal_id "
             "WHERE g.user_id = ? AND c.date = ?",
             (user_id, today),
         )
@@ -187,11 +203,12 @@ def goals_with_status(db, user_id):
 
 def synced_tasks_for_today(db, user_id):
     today = today_str()
-    rows = db.execute(
+    rows = query_all(
+        db,
         "SELECT id, external_id, text, time, task_type, done FROM synced_tasks "
         "WHERE user_id = ? AND date = ? ORDER BY time, id",
         (user_id, today),
-    ).fetchall()
+    )
     return [
         {
             "id": row["id"],
@@ -223,7 +240,7 @@ def current_state(db, user_id):
 
 def owned_goal(db, user_id, goal_id):
     """Fetch a goal only if it belongs to this user — prevents editing someone else's goals by guessing an id."""
-    return db.execute("SELECT * FROM goals WHERE id = ? AND user_id = ?", (goal_id, user_id)).fetchone()
+    return query_one(db, "SELECT * FROM goals WHERE id = ? AND user_id = ?", (goal_id, user_id))
 
 
 @app.route("/")
@@ -252,15 +269,16 @@ def api_state():
 def api_history():
     db = get_db()
     user_id = session["user_id"]
-    total_goals = db.execute("SELECT COUNT(*) FROM goals WHERE user_id = ?", (user_id,)).fetchone()[0]
+    total_goals = query_one(db, "SELECT COUNT(*) AS n FROM goals WHERE user_id = ?", (user_id,))["n"]
     days = []
     for offset in range(6, -1, -1):
         day = (datetime.date.today() - datetime.timedelta(days=offset)).isoformat()
-        count = db.execute(
-            "SELECT COUNT(*) FROM completions c JOIN goals g ON g.id = c.goal_id "
+        count = query_one(
+            db,
+            "SELECT COUNT(*) AS n FROM completions c JOIN goals g ON g.id = c.goal_id "
             "WHERE g.user_id = ? AND c.date = ? AND c.done = 1",
             (user_id, day),
-        ).fetchone()[0]
+        )["n"]
         days.append({"date": day, "count": count})
     return jsonify({"days": days, "total_goals": total_goals})
 
@@ -273,14 +291,13 @@ def api_toggle(goal_id):
     if not owned_goal(db, user_id, goal_id):
         return jsonify({"error": "not found"}), 404
     today = today_str()
-    row = db.execute("SELECT done FROM completions WHERE goal_id = ? AND date = ?", (goal_id, today)).fetchone()
+    row = query_one(db, "SELECT done FROM completions WHERE goal_id = ? AND date = ?", (goal_id, today))
     new_done = 0 if row and row["done"] else 1
     db.execute(
         "INSERT INTO completions (goal_id, date, done) VALUES (?, ?, ?) "
         "ON CONFLICT(goal_id, date) DO UPDATE SET done = excluded.done",
         (goal_id, today, new_done),
     )
-    db.commit()
     return jsonify(current_state(db, user_id))
 
 
@@ -293,9 +310,8 @@ def api_add_goal():
         return jsonify({"error": "text is required"}), 400
     db = get_db()
     user_id = session["user_id"]
-    max_order = db.execute("SELECT COALESCE(MAX(sort_order), -1) FROM goals WHERE user_id = ?", (user_id,)).fetchone()[0]
+    max_order = query_one(db, "SELECT COALESCE(MAX(sort_order), -1) AS n FROM goals WHERE user_id = ?", (user_id,))["n"]
     db.execute("INSERT INTO goals (user_id, text, sort_order) VALUES (?, ?, ?)", (user_id, text, max_order + 1))
-    db.commit()
     return jsonify(current_state(db, user_id))
 
 
@@ -311,7 +327,6 @@ def api_edit_goal(goal_id):
     if not owned_goal(db, user_id, goal_id):
         return jsonify({"error": "not found"}), 404
     db.execute("UPDATE goals SET text = ? WHERE id = ?", (text, goal_id))
-    db.commit()
     return jsonify(current_state(db, user_id))
 
 
@@ -324,7 +339,6 @@ def api_delete_goal(goal_id):
         return jsonify({"error": "not found"}), 404
     db.execute("DELETE FROM goals WHERE id = ?", (goal_id,))
     db.execute("DELETE FROM completions WHERE goal_id = ?", (goal_id,))
-    db.commit()
     return jsonify(current_state(db, user_id))
 
 
@@ -338,7 +352,7 @@ def api_move_goal(goal_id):
     if not owned_goal(db, user_id, goal_id):
         return jsonify({"error": "not found"}), 404
 
-    goals = db.execute("SELECT id, sort_order FROM goals WHERE user_id = ? ORDER BY sort_order", (user_id,)).fetchall()
+    goals = query_all(db, "SELECT id, sort_order FROM goals WHERE user_id = ? ORDER BY sort_order", (user_id,))
     ids = [goal["id"] for goal in goals]
     index = ids.index(goal_id)
     swap_with = index - 1 if direction == "up" else index + 1 if direction == "down" else None
@@ -346,7 +360,6 @@ def api_move_goal(goal_id):
         goal_a, goal_b = goals[index], goals[swap_with]
         db.execute("UPDATE goals SET sort_order = ? WHERE id = ?", (goal_b["sort_order"], goal_a["id"]))
         db.execute("UPDATE goals SET sort_order = ? WHERE id = ?", (goal_a["sort_order"], goal_b["id"]))
-        db.commit()
     return jsonify(current_state(db, user_id))
 
 
@@ -374,10 +387,9 @@ def api_sync():
         task_type = str(task.get("task_type", "Task"))
         incoming_done = 1 if task.get("done") else 0
 
-        existing = db.execute(
-            "SELECT done FROM synced_tasks WHERE user_id = ? AND external_id = ?",
-            (user_id, external_id),
-        ).fetchone()
+        existing = query_one(
+            db, "SELECT done FROM synced_tasks WHERE user_id = ? AND external_id = ?", (user_id, external_id)
+        )
         merged_done = 1 if incoming_done or (existing and existing["done"]) else 0
 
         db.execute(
@@ -390,14 +402,11 @@ def api_sync():
         )
 
     # A task no longer reported by the desktop for today (deleted/renamed there) drops out here too.
-    existing_today = db.execute(
-        "SELECT id, external_id FROM synced_tasks WHERE user_id = ? AND date = ?", (user_id, today)
-    ).fetchall()
+    existing_today = query_all(db, "SELECT id, external_id FROM synced_tasks WHERE user_id = ? AND date = ?", (user_id, today))
     for row in existing_today:
         if row["external_id"] not in incoming_ids:
             db.execute("DELETE FROM synced_tasks WHERE id = ?", (row["id"],))
 
-    db.commit()
     return jsonify(current_state(db, user_id))
 
 
@@ -406,12 +415,11 @@ def api_sync():
 def api_toggle_synced_task(task_id):
     db = get_db()
     user_id = session["user_id"]
-    row = db.execute("SELECT done FROM synced_tasks WHERE id = ? AND user_id = ?", (task_id, user_id)).fetchone()
+    row = query_one(db, "SELECT done FROM synced_tasks WHERE id = ? AND user_id = ?", (task_id, user_id))
     if not row:
         return jsonify({"error": "not found"}), 404
     new_done = 0 if row["done"] else 1
     db.execute("UPDATE synced_tasks SET done = ? WHERE id = ?", (new_done, task_id))
-    db.commit()
     return jsonify(current_state(db, user_id))
 
 
