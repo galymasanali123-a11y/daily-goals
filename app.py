@@ -26,6 +26,10 @@ STATIC_DIR = Path(__file__).parent / "static"
 
 app = Flask(__name__)
 app.secret_key = SECRET_KEY
+# Sessions are marked permanent on login/register (session.permanent = True) -- without this,
+# Flask's default permanent-session lifetime is only 31 days, which reads as "randomly signed
+# out" on an app people check daily. A year is effectively "don't sign me out".
+app.config["PERMANENT_SESSION_LIFETIME"] = datetime.timedelta(days=365)
 
 
 def connect_db():
