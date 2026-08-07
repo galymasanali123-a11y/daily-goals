@@ -9,6 +9,7 @@ Deploy: see README.md for Render.com + Turso instructions.
 """
 
 import datetime
+import json
 import os
 from functools import wraps
 from pathlib import Path
@@ -96,6 +97,33 @@ def init_db():
             task_type TEXT NOT NULL DEFAULT 'Task',
             done INTEGER NOT NULL DEFAULT 0,
             UNIQUE(user_id, external_id)
+        )"""
+    )
+    db.execute(
+        """CREATE TABLE IF NOT EXISTS synced_cards (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL REFERENCES users(id),
+            external_id TEXT NOT NULL,
+            topic TEXT NOT NULL,
+            question TEXT NOT NULL,
+            answer TEXT NOT NULL,
+            options_json TEXT NOT NULL DEFAULT '[]',
+            example TEXT NOT NULL DEFAULT '',
+            notes TEXT NOT NULL DEFAULT '',
+            due TEXT NOT NULL DEFAULT '0000-00-00',
+            interval INTEGER NOT NULL DEFAULT 1,
+            ease REAL NOT NULL DEFAULT 2.5,
+            reps INTEGER NOT NULL DEFAULT 0,
+            UNIQUE(user_id, external_id)
+        )"""
+    )
+    db.execute(
+        """CREATE TABLE IF NOT EXISTS card_review_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL REFERENCES users(id),
+            external_id TEXT NOT NULL,
+            correct INTEGER NOT NULL,
+            reviewed_at TEXT NOT NULL
         )"""
     )
     db.close()
@@ -234,6 +262,51 @@ def synced_tasks_for_today(db, user_id):
         }
         for row in rows
     ]
+
+
+def apply_review_result(card_state, correct):
+    """Same SM-2-lite schedule as the desktop app (main.py / medstudy_gui.py) — kept in sync by hand
+    since this Flask service has no shared package with the desktop code."""
+    ease = card_state.get("ease", 2.5)
+    reps = card_state.get("reps", 0)
+    if correct:
+        reps += 1
+        if reps == 1:
+            interval = 1
+        elif reps == 2:
+            interval = 6
+        else:
+            interval = round(card_state.get("interval", 1) * ease)
+        ease = min(2.6, ease + 0.1)
+    else:
+        reps = 0
+        interval = 1
+        ease = max(1.3, ease - 0.2)
+
+    due = (datetime.date.today() + datetime.timedelta(days=interval)).isoformat()
+    return {"reps": reps, "interval": interval, "ease": round(ease, 2), "due": due}
+
+
+def card_row_to_dict(row):
+    return {
+        "id": row["id"],
+        "external_id": row["external_id"],
+        "topic": row["topic"],
+        "question": row["question"],
+        "answer": row["answer"],
+        "options": json.loads(row["options_json"] or "[]"),
+        "example": row["example"],
+        "notes": row["notes"],
+        "due": row["due"],
+        "interval": row["interval"],
+        "ease": row["ease"],
+        "reps": row["reps"],
+    }
+
+
+def cards_for_user(db, user_id):
+    rows = query_all(db, "SELECT * FROM synced_cards WHERE user_id = ? ORDER BY topic, question", (user_id,))
+    return [card_row_to_dict(row) for row in rows]
 
 
 def current_state(db, user_id):
@@ -435,6 +508,119 @@ def api_toggle_synced_task(task_id):
     new_done = 0 if row["done"] else 1
     db.execute("UPDATE synced_tasks SET done = ? WHERE id = ?", (new_done, task_id))
     return jsonify(current_state(db, user_id))
+
+
+@app.route("/flashcards")
+@login_required
+def flashcards_page():
+    return render_template("flashcards.html")
+
+
+@app.route("/api/cards", methods=["GET"])
+@login_required
+def api_cards():
+    db = get_db()
+    user_id = session["user_id"]
+    cards = cards_for_user(db, user_id)
+    topics = sorted({card["topic"] for card in cards})
+    return jsonify({"cards": cards, "topics": topics, "today": today_str()})
+
+
+@app.route("/api/cards/pull-reviews", methods=["POST"])
+@login_required
+def api_cards_pull_reviews():
+    """The desktop app calls this before pushing: fetch review events made on the phone since the
+    last sync (oldest first, so SM-2 intervals apply in the order they actually happened), then
+    clear them out — they're consumed exactly once."""
+    db = get_db()
+    user_id = session["user_id"]
+    rows = query_all(
+        db,
+        "SELECT id, external_id, correct, reviewed_at FROM card_review_events "
+        "WHERE user_id = ? ORDER BY reviewed_at, id",
+        (user_id,),
+    )
+    events = [{"external_id": row["external_id"], "correct": bool(row["correct"]), "reviewed_at": row["reviewed_at"]} for row in rows]
+    if rows:
+        db.execute("DELETE FROM card_review_events WHERE user_id = ?", (user_id,))
+    return jsonify({"events": events})
+
+
+@app.route("/api/cards/sync", methods=["POST"])
+@login_required
+def api_cards_sync():
+    """Push the full desktop flashcard deck (content + spaced-repetition state). The desktop is
+    authoritative for due/interval/ease/reps — it's expected to have already pulled and applied
+    any pending phone review events (via /api/cards/pull-reviews) before calling this, so this
+    push's state reflects those reviews too."""
+    payload = request.get_json(silent=True) or {}
+    incoming_cards = payload.get("cards", [])
+    if not isinstance(incoming_cards, list):
+        return jsonify({"error": "cards must be a list"}), 400
+
+    db = get_db()
+    user_id = session["user_id"]
+
+    incoming_ids = set()
+    for card in incoming_cards:
+        external_id = str(card.get("external_id", "")).strip()
+        topic = str(card.get("topic", "")).strip()
+        question = str(card.get("question", "")).strip()
+        if not external_id or not topic or not question:
+            continue
+        incoming_ids.add(external_id)
+        answer = str(card.get("answer", ""))
+        options_json = json.dumps(card.get("options") or [])
+        example = str(card.get("example", ""))
+        notes = str(card.get("notes", ""))
+        due = str(card.get("due", "0000-00-00"))
+        interval = int(card.get("interval", 1) or 1)
+        ease = float(card.get("ease", 2.5) or 2.5)
+        reps = int(card.get("reps", 0) or 0)
+
+        db.execute(
+            "INSERT INTO synced_cards (user_id, external_id, topic, question, answer, options_json, "
+            "example, notes, due, interval, ease, reps) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(user_id, external_id) DO UPDATE SET "
+            "topic = excluded.topic, question = excluded.question, answer = excluded.answer, "
+            "options_json = excluded.options_json, example = excluded.example, notes = excluded.notes, "
+            "due = excluded.due, interval = excluded.interval, ease = excluded.ease, reps = excluded.reps",
+            (user_id, external_id, topic, question, answer, options_json, example, notes, due, interval, ease, reps),
+        )
+
+    # A card no longer in the desktop's deck (deleted there) drops out here too.
+    existing = query_all(db, "SELECT id, external_id FROM synced_cards WHERE user_id = ?", (user_id,))
+    for row in existing:
+        if row["external_id"] not in incoming_ids:
+            db.execute("DELETE FROM synced_cards WHERE id = ?", (row["id"],))
+
+    return jsonify({"card_count": len(incoming_ids)})
+
+
+@app.route("/api/cards/<int:card_id>/review", methods=["POST"])
+@login_required
+def api_card_review(card_id):
+    payload = request.get_json(silent=True) or {}
+    correct = bool(payload.get("correct"))
+
+    db = get_db()
+    user_id = session["user_id"]
+    row = query_one(db, "SELECT * FROM synced_cards WHERE id = ? AND user_id = ?", (card_id, user_id))
+    if not row:
+        return jsonify({"error": "not found"}), 404
+
+    updated = apply_review_result({"ease": row["ease"], "reps": row["reps"], "interval": row["interval"]}, correct)
+    db.execute(
+        "UPDATE synced_cards SET due = ?, interval = ?, ease = ?, reps = ? WHERE id = ?",
+        (updated["due"], updated["interval"], updated["ease"], updated["reps"], card_id),
+    )
+    db.execute(
+        "INSERT INTO card_review_events (user_id, external_id, correct, reviewed_at) VALUES (?, ?, ?, ?)",
+        (user_id, row["external_id"], 1 if correct else 0, datetime.datetime.now().isoformat()),
+    )
+    result = card_row_to_dict(row)
+    result.update(due=updated["due"], interval=updated["interval"], ease=updated["ease"], reps=updated["reps"])
+    return jsonify(result)
 
 
 init_db()

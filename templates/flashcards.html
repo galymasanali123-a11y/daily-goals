@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block subtitle %}Flashcards synced from your desktop{% endblock %}
+{% block content %}
+
+<div class="nav-tabs">
+  <a class="nav-tab" href="{{ url_for('index') }}">Goals</a>
+  <span class="nav-tab active">Flashcards</span>
+</div>
+
+<div id="topic-filter" class="topic-filter"></div>
+
+<div id="empty-cards" class="card empty-state" style="display:none;">
+  Nothing synced yet — open the desktop app and sync your flashcards to your phone.
+</div>
+
+<div id="all-caught-up" class="card empty-state" style="display:none;">
+  Nothing due right now in this subject. Nice work — check back later.
+</div>
+
+<div id="study-area" style="display:none;">
+  <div id="study-progress" class="study-progress"></div>
+  <div class="card study-card" id="study-card">
+    <div class="study-topic" id="study-topic"></div>
+    <div class="study-question" id="study-question"></div>
+    <div class="study-answer" id="study-answer" style="display:none;"></div>
+    <div class="study-example" id="study-example" style="display:none;"></div>
+  </div>
+  <button class="btn-reveal" id="reveal-btn">Show answer</button>
+  <div class="study-actions" id="study-actions" style="display:none;">
+    <button class="btn-wrong" id="wrong-btn">✕ Didn't know it</button>
+    <button class="btn-correct" id="correct-btn">✓ Knew it</button>
+  </div>
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='flashcards.js') }}"></script>
+{% endblock %}

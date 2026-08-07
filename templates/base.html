@@ -282,6 +282,11 @@
       color: var(--text-primary);
     }
     .goal-row { border-bottom-color: #1c3145; }
+    .nav-tab { color: var(--text-body); }
+    .topic-chip { border-color: #24425a; }
+    .study-answer { border-top-color: #1c3145; }
+    .btn-wrong { background: #3a1a1a; }
+    .btn-correct { background: #1a3324; }
   }
   /* Respect the iPhone notch / home-indicator safe areas when installed full-screen */
   header.top {
@@ -308,6 +313,119 @@
   .toast.show {
     opacity: 1;
     transform: translateX(-50%) translateY(0);
+  }
+  .nav-tabs {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+  .nav-tab {
+    flex: 1;
+    text-align: center;
+    padding: 10px;
+    border-radius: 10px;
+    background: var(--card-bg);
+    color: var(--text-body);
+    text-decoration: none;
+    font-size: 0.9rem;
+    font-weight: 600;
+    box-shadow: 0 1px 3px rgba(15, 36, 56, 0.08);
+  }
+  .nav-tab.active {
+    background: var(--accent);
+    color: white;
+  }
+  .topic-filter {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+  .topic-chip {
+    padding: 7px 14px;
+    border-radius: 999px;
+    background: var(--card-bg);
+    color: var(--text-body);
+    border: 1px solid #d3dee2;
+    font-size: 0.82rem;
+    cursor: pointer;
+  }
+  .topic-chip.active {
+    background: var(--accent);
+    color: white;
+    border-color: var(--accent);
+  }
+  .study-card {
+    min-height: 220px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    text-align: center;
+    padding: 32px 20px;
+  }
+  .study-topic {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--accent);
+    font-weight: 700;
+    margin-bottom: 10px;
+  }
+  .study-question {
+    font-size: 1.15rem;
+    font-weight: 600;
+    line-height: 1.4;
+  }
+  .study-answer {
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid #eef1f3;
+    font-size: 1.05rem;
+    color: var(--text-body);
+  }
+  .study-example {
+    margin-top: 8px;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    font-style: italic;
+  }
+  .study-progress {
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    margin-bottom: 8px;
+  }
+  .study-actions {
+    display: flex;
+    gap: 10px;
+  }
+  .study-actions button {
+    flex: 1;
+    padding: 14px;
+    border-radius: 12px;
+    border: none;
+    font-size: 0.95rem;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  .btn-wrong {
+    background: #fde8e8;
+    color: var(--danger);
+  }
+  .btn-correct {
+    background: #dcf5e6;
+    color: var(--correct);
+  }
+  .btn-reveal {
+    background: var(--accent);
+    color: white;
+    width: 100%;
+    padding: 14px;
+    border-radius: 12px;
+    border: none;
+    font-size: 0.95rem;
+    font-weight: 700;
+    cursor: pointer;
   }
 </style>
 </head>

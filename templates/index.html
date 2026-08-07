@@ -2,6 +2,11 @@
 {% block subtitle %}<span id="today-label">{{ state.today }}</span>{% endblock %}
 {% block content %}
 
+<div class="nav-tabs">
+  <span class="nav-tab active">Goals</span>
+  <a class="nav-tab" href="{{ url_for('flashcards_page') }}">Flashcards</a>
+</div>
+
 <div class="stat-row">
   <div class="stat-tile">
     <div class="value" id="stat-done">{{ state.done_count }}/{{ state.total_count }}</div>

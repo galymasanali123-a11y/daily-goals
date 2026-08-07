@@ -1,0 +1,147 @@
+(function () {
+  "use strict";
+
+  const topicFilter = document.getElementById("topic-filter");
+  const emptyCards = document.getElementById("empty-cards");
+  const allCaughtUp = document.getElementById("all-caught-up");
+  const studyArea = document.getElementById("study-area");
+  const studyProgress = document.getElementById("study-progress");
+  const studyTopic = document.getElementById("study-topic");
+  const studyQuestion = document.getElementById("study-question");
+  const studyAnswer = document.getElementById("study-answer");
+  const studyExample = document.getElementById("study-example");
+  const revealBtn = document.getElementById("reveal-btn");
+  const studyActions = document.getElementById("study-actions");
+  const wrongBtn = document.getElementById("wrong-btn");
+  const correctBtn = document.getElementById("correct-btn");
+  const toast = document.getElementById("toast");
+
+  let allCards = [];
+  let today = "";
+  let selectedTopic = "All";
+  let queue = [];
+  let queueTotal = 0;
+  let revealed = false;
+
+  function showToast(message) {
+    toast.textContent = message;
+    toast.classList.add("show");
+    clearTimeout(showToast._t);
+    showToast._t = setTimeout(() => toast.classList.remove("show"), 2200);
+  }
+
+  async function api(path, options) {
+    const response = await fetch(path, {
+      headers: { "Content-Type": "application/json" },
+      ...options,
+    });
+    if (response.status === 401) {
+      window.location.href = "/login";
+      throw new Error("not authenticated");
+    }
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      throw new Error(body.error || "Something went wrong.");
+    }
+    return response.json();
+  }
+
+  function escapeHTML(text) {
+    const div = document.createElement("div");
+    div.textContent = text;
+    return div.innerHTML;
+  }
+
+  function renderTopicFilter(topics) {
+    const chips = ["All", ...topics];
+    topicFilter.innerHTML = chips
+      .map((topic) => `<span class="topic-chip ${topic === selectedTopic ? "active" : ""}" data-topic="${escapeHTML(topic)}">${escapeHTML(topic)}</span>`)
+      .join("");
+  }
+
+  topicFilter.addEventListener("click", (event) => {
+    const chip = event.target.closest(".topic-chip");
+    if (!chip) return;
+    selectedTopic = chip.dataset.topic;
+    renderTopicFilter([...new Set(allCards.map((card) => card.topic))].sort());
+    buildQueue();
+  });
+
+  function buildQueue() {
+    const dueCards = allCards.filter((card) => card.due <= today);
+    queue = selectedTopic === "All" ? dueCards : dueCards.filter((card) => card.topic === selectedTopic);
+    queueTotal = queue.length;
+    showNextCard();
+  }
+
+  function showNextCard() {
+    revealed = false;
+    studyAnswer.style.display = "none";
+    studyExample.style.display = "none";
+    revealBtn.style.display = "";
+    studyActions.style.display = "none";
+
+    if (allCards.length === 0) {
+      emptyCards.style.display = "";
+      studyArea.style.display = "none";
+      allCaughtUp.style.display = "none";
+      return;
+    }
+    emptyCards.style.display = "none";
+
+    if (queue.length === 0) {
+      studyArea.style.display = "none";
+      allCaughtUp.style.display = "";
+      return;
+    }
+    allCaughtUp.style.display = "none";
+    studyArea.style.display = "";
+
+    const card = queue[0];
+    studyProgress.textContent = `${queueTotal - queue.length + 1} of ${queueTotal} due`;
+    studyTopic.textContent = card.topic;
+    studyQuestion.textContent = card.question;
+    studyAnswer.textContent = card.answer;
+    if (card.example) {
+      studyExample.textContent = card.example;
+    }
+  }
+
+  revealBtn.addEventListener("click", () => {
+    revealed = true;
+    studyAnswer.style.display = "";
+    if (queue[0] && queue[0].example) studyExample.style.display = "";
+    revealBtn.style.display = "none";
+    studyActions.style.display = "flex";
+  });
+
+  async function submitReview(correct) {
+    if (!revealed || queue.length === 0) return;
+    const card = queue[0];
+    try {
+      await api(`/api/cards/${card.id}/review`, { method: "POST", body: JSON.stringify({ correct }) });
+    } catch (error) {
+      showToast(error.message);
+      return;
+    }
+    queue.shift();
+    showNextCard();
+  }
+
+  wrongBtn.addEventListener("click", () => submitReview(false));
+  correctBtn.addEventListener("click", () => submitReview(true));
+
+  async function load() {
+    try {
+      const data = await api("/api/cards");
+      allCards = data.cards;
+      today = data.today;
+      renderTopicFilter(data.topics);
+      buildQueue();
+    } catch (error) {
+      showToast(error.message);
+    }
+  }
+
+  load();
+})();
