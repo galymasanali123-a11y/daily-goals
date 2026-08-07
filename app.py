@@ -21,6 +21,17 @@ from werkzeug.security import check_password_hash, generate_password_hash
 SECRET_KEY = os.environ.get("SECRET_KEY", "dev-secret-change-in-production")
 TURSO_DATABASE_URL = os.environ.get("TURSO_DATABASE_URL")
 TURSO_AUTH_TOKEN = os.environ.get("TURSO_AUTH_TOKEN")
+
+# Render's local disk is wiped on every redeploy. Falling back to it silently here has, in
+# practice, silently deleted every account on the next deploy with no error anywhere -- refuse
+# to start on Render at all without Turso configured, rather than repeat that quietly.
+if os.environ.get("RENDER") and not TURSO_DATABASE_URL:
+    raise RuntimeError(
+        "TURSO_DATABASE_URL is not set. Running on Render without it means every account and "
+        "goal is stored on disk that gets wiped on the next deploy. Set TURSO_DATABASE_URL and "
+        "TURSO_AUTH_TOKEN in the Render dashboard's Environment tab, then redeploy."
+    )
+
 DB_URL = TURSO_DATABASE_URL or f"file:{os.environ.get('DB_PATH', 'daily_goals.db')}"
 STATIC_DIR = Path(__file__).parent / "static"
 
