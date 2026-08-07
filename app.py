@@ -122,10 +122,16 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER NOT NULL REFERENCES users(id),
             external_id TEXT NOT NULL,
-            correct INTEGER NOT NULL,
+            confidence INTEGER NOT NULL DEFAULT 3,
             reviewed_at TEXT NOT NULL
         )"""
     )
+    # Migrate a database created before confidence ratings existed (was a plain correct/wrong flag).
+    review_columns = {row["name"] for row in db.execute("PRAGMA table_info(card_review_events)").rows}
+    if "confidence" not in review_columns:
+        db.execute("ALTER TABLE card_review_events ADD COLUMN confidence INTEGER NOT NULL DEFAULT 3")
+        if "correct" in review_columns:
+            db.execute("UPDATE card_review_events SET confidence = CASE WHEN correct = 1 THEN 3 ELSE 1 END")
     db.close()
 
 
@@ -264,12 +270,22 @@ def synced_tasks_for_today(db, user_id):
     ]
 
 
-def apply_review_result(card_state, correct):
+CONFIDENCE_LABELS = {1: "Again", 2: "Hard", 3: "Good", 4: "Easy"}
+
+
+def apply_review_result(card_state, confidence):
     """Same SM-2-lite schedule as the desktop app (main.py / medstudy_gui.py) — kept in sync by hand
-    since this Flask service has no shared package with the desktop code."""
+    since this Flask service has no shared package with the desktop code. 1=Again, 2=Hard,
+    3=Good, 4=Easy; "Again" always resets the card, higher confidence grows the interval faster."""
+    confidence = max(1, min(4, int(confidence)))
     ease = card_state.get("ease", 2.5)
     reps = card_state.get("reps", 0)
-    if correct:
+
+    if confidence == 1:
+        reps = 0
+        interval = 1
+        ease = max(1.3, ease - 0.2)
+    else:
         reps += 1
         if reps == 1:
             interval = 1
@@ -277,11 +293,15 @@ def apply_review_result(card_state, correct):
             interval = 6
         else:
             interval = round(card_state.get("interval", 1) * ease)
-        ease = min(2.6, ease + 0.1)
-    else:
-        reps = 0
-        interval = 1
-        ease = max(1.3, ease - 0.2)
+
+        if confidence == 2:
+            interval = max(1, round(interval * 0.6))
+            ease = max(1.3, ease - 0.15)
+        elif confidence == 3:
+            ease = min(2.6, ease + 0.1)
+        else:  # confidence == 4, Easy
+            interval = round(interval * 1.3)
+            ease = min(2.8, ease + 0.15)
 
     due = (datetime.date.today() + datetime.timedelta(days=interval)).isoformat()
     return {"reps": reps, "interval": interval, "ease": round(ease, 2), "due": due}
@@ -536,11 +556,11 @@ def api_cards_pull_reviews():
     user_id = session["user_id"]
     rows = query_all(
         db,
-        "SELECT id, external_id, correct, reviewed_at FROM card_review_events "
+        "SELECT id, external_id, confidence, reviewed_at FROM card_review_events "
         "WHERE user_id = ? ORDER BY reviewed_at, id",
         (user_id,),
     )
-    events = [{"external_id": row["external_id"], "correct": bool(row["correct"]), "reviewed_at": row["reviewed_at"]} for row in rows]
+    events = [{"external_id": row["external_id"], "confidence": row["confidence"], "reviewed_at": row["reviewed_at"]} for row in rows]
     if rows:
         db.execute("DELETE FROM card_review_events WHERE user_id = ?", (user_id,))
     return jsonify({"events": events})
@@ -601,7 +621,10 @@ def api_cards_sync():
 @login_required
 def api_card_review(card_id):
     payload = request.get_json(silent=True) or {}
-    correct = bool(payload.get("correct"))
+    try:
+        confidence = max(1, min(4, int(payload.get("confidence", 3))))
+    except (TypeError, ValueError):
+        confidence = 3
 
     db = get_db()
     user_id = session["user_id"]
@@ -609,14 +632,14 @@ def api_card_review(card_id):
     if not row:
         return jsonify({"error": "not found"}), 404
 
-    updated = apply_review_result({"ease": row["ease"], "reps": row["reps"], "interval": row["interval"]}, correct)
+    updated = apply_review_result({"ease": row["ease"], "reps": row["reps"], "interval": row["interval"]}, confidence)
     db.execute(
         "UPDATE synced_cards SET due = ?, interval = ?, ease = ?, reps = ? WHERE id = ?",
         (updated["due"], updated["interval"], updated["ease"], updated["reps"], card_id),
     )
     db.execute(
-        "INSERT INTO card_review_events (user_id, external_id, correct, reviewed_at) VALUES (?, ?, ?, ?)",
-        (user_id, row["external_id"], 1 if correct else 0, datetime.datetime.now().isoformat()),
+        "INSERT INTO card_review_events (user_id, external_id, confidence, reviewed_at) VALUES (?, ?, ?, ?)",
+        (user_id, row["external_id"], confidence, datetime.datetime.now().isoformat()),
     )
     result = card_row_to_dict(row)
     result.update(due=updated["due"], interval=updated["interval"], ease=updated["ease"], reps=updated["reps"])

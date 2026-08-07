@@ -12,8 +12,6 @@
   const studyExample = document.getElementById("study-example");
   const revealBtn = document.getElementById("reveal-btn");
   const studyActions = document.getElementById("study-actions");
-  const wrongBtn = document.getElementById("wrong-btn");
-  const correctBtn = document.getElementById("correct-btn");
   const toast = document.getElementById("toast");
 
   let allCards = [];
@@ -112,14 +110,14 @@
     studyAnswer.style.display = "";
     if (queue[0] && queue[0].example) studyExample.style.display = "";
     revealBtn.style.display = "none";
-    studyActions.style.display = "flex";
+    studyActions.style.display = "grid";
   });
 
-  async function submitReview(correct) {
+  async function submitReview(confidence) {
     if (!revealed || queue.length === 0) return;
     const card = queue[0];
     try {
-      await api(`/api/cards/${card.id}/review`, { method: "POST", body: JSON.stringify({ correct }) });
+      await api(`/api/cards/${card.id}/review`, { method: "POST", body: JSON.stringify({ confidence }) });
     } catch (error) {
       showToast(error.message);
       return;
@@ -128,8 +126,11 @@
     showNextCard();
   }
 
-  wrongBtn.addEventListener("click", () => submitReview(false));
-  correctBtn.addEventListener("click", () => submitReview(true));
+  studyActions.addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-confidence]");
+    if (!button) return;
+    submitReview(parseInt(button.dataset.confidence, 10));
+  });
 
   async function load() {
     try {
