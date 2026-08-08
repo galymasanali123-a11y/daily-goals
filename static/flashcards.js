@@ -66,7 +66,10 @@
   });
 
   function buildQueue() {
-    const dueCards = allCards.filter((card) => card.due <= today);
+    // due_today is server-computed: review-due cards are always included, but never-reviewed
+    // cards are capped per day (see select_study_cards in app.py) so a freshly-synced 900-card
+    // deck doesn't dump every card on you the moment it lands on your phone.
+    const dueCards = allCards.filter((card) => card.due_today);
     queue = selectedTopic === "All" ? dueCards : dueCards.filter((card) => card.topic === selectedTopic);
     queueTotal = queue.length;
     showNextCard();

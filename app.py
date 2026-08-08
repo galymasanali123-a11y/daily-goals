@@ -147,6 +147,13 @@ def init_db():
         db.execute("ALTER TABLE card_review_events ADD COLUMN confidence INTEGER NOT NULL DEFAULT 3")
         if "correct" in review_columns:
             db.execute("UPDATE card_review_events SET confidence = CASE WHEN correct = 1 THEN 3 ELSE 1 END")
+    db.execute(
+        """CREATE TABLE IF NOT EXISTS new_card_intro_state (
+            user_id INTEGER PRIMARY KEY REFERENCES users(id),
+            date TEXT NOT NULL,
+            ids_json TEXT NOT NULL DEFAULT '[]'
+        )"""
+    )
     db.close()
 
 
@@ -342,6 +349,36 @@ def card_row_to_dict(row):
 def cards_for_user(db, user_id):
     rows = query_all(db, "SELECT * FROM synced_cards WHERE user_id = ? ORDER BY topic, question", (user_id,))
     return [card_row_to_dict(row) for row in rows]
+
+
+NEW_CARDS_PER_DAY = 20
+
+
+def select_study_cards(cards, db, user_id, new_limit=NEW_CARDS_PER_DAY):
+    """External ids of cards actually worth studying today: every card already in the review
+    cycle that's due, plus up to `new_limit` never-reviewed cards -- same "new cards/day" cap
+    as the desktop app, mirrored here so the phone doesn't dump an entire freshly-synced deck
+    on you at once. State persists per user across a day so the set stays stable on reload.
+    """
+    today = today_str()
+    row = query_one(db, "SELECT date, ids_json FROM new_card_intro_state WHERE user_id = ?", (user_id,))
+    already_introduced = set(json.loads(row["ids_json"])) if row and row["date"] == today else set()
+
+    review_due = [c for c in cards if c["due"] and c["due"] != "0000-00-00" and c["due"] <= today]
+    new_cards = [c for c in cards if not c["due"] or c["due"] == "0000-00-00"]
+
+    still_introduced = [c for c in new_cards if c["external_id"] in already_introduced]
+    fresh_candidates = [c for c in new_cards if c["external_id"] not in already_introduced]
+    remaining_slots = max(0, new_limit - len(still_introduced))
+    newly_introduced = fresh_candidates[:remaining_slots]
+
+    updated_ids = already_introduced | {c["external_id"] for c in still_introduced + newly_introduced}
+    db.execute(
+        "INSERT INTO new_card_intro_state (user_id, date, ids_json) VALUES (?, ?, ?) "
+        "ON CONFLICT(user_id) DO UPDATE SET date = excluded.date, ids_json = excluded.ids_json",
+        (user_id, today, json.dumps(list(updated_ids))),
+    )
+    return {c["external_id"] for c in review_due + still_introduced + newly_introduced}
 
 
 def current_state(db, user_id):
@@ -557,6 +594,9 @@ def api_cards():
     db = get_db()
     user_id = session["user_id"]
     cards = cards_for_user(db, user_id)
+    due_today_ids = select_study_cards(cards, db, user_id)
+    for card in cards:
+        card["due_today"] = card["external_id"] in due_today_ids
     topics = sorted({card["topic"] for card in cards})
     return jsonify({"cards": cards, "topics": topics, "today": today_str()})
 
