@@ -59,4 +59,4 @@ Using [Render.com](https://render.com)'s free tier — no credit card needed.
 - `requirements.txt` — Flask + gunicorn (the production server Render runs)
 
 <!-- persistence test marker: Fri Jul 31 01:27:11 QST 2026 -->
-<!-- turso persistence re-test -->
+<!-- turso persistence re-test: verified 2026-08-08T01:34:32Z -->
