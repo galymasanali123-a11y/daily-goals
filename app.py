@@ -132,6 +132,10 @@ def init_db():
             UNIQUE(user_id, external_id)
         )"""
     )
+    # Migrate a database created before leech tracking existed.
+    card_columns = {row["name"] for row in db.execute("PRAGMA table_info(synced_cards)").rows}
+    if "lapses" not in card_columns:
+        db.execute("ALTER TABLE synced_cards ADD COLUMN lapses INTEGER NOT NULL DEFAULT 0")
     db.execute(
         """CREATE TABLE IF NOT EXISTS card_review_events (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -326,7 +330,11 @@ def apply_review_result(card_state, confidence):
             ease = min(2.8, ease + 0.15)
 
     due = (datetime.date.today() + datetime.timedelta(days=interval)).isoformat()
-    return {"reps": reps, "interval": interval, "ease": round(ease, 2), "due": due}
+    lapses = card_state.get("lapses", 0) + (1 if confidence == 1 else 0)
+    return {"reps": reps, "interval": interval, "ease": round(ease, 2), "due": due, "lapses": lapses}
+
+
+LEECH_THRESHOLD = 4
 
 
 def card_row_to_dict(row):
@@ -343,6 +351,7 @@ def card_row_to_dict(row):
         "interval": row["interval"],
         "ease": row["ease"],
         "reps": row["reps"],
+        "lapses": row["lapses"],
     }
 
 
@@ -652,15 +661,17 @@ def api_cards_sync():
         interval = int(card.get("interval", 1) or 1)
         ease = float(card.get("ease", 2.5) or 2.5)
         reps = int(card.get("reps", 0) or 0)
+        lapses = int(card.get("lapses", 0) or 0)
 
         db.execute(
             "INSERT INTO synced_cards (user_id, external_id, topic, question, answer, options_json, "
-            "example, notes, due, interval, ease, reps) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+            "example, notes, due, interval, ease, reps, lapses) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(user_id, external_id) DO UPDATE SET "
             "topic = excluded.topic, question = excluded.question, answer = excluded.answer, "
             "options_json = excluded.options_json, example = excluded.example, notes = excluded.notes, "
-            "due = excluded.due, interval = excluded.interval, ease = excluded.ease, reps = excluded.reps",
-            (user_id, external_id, topic, question, answer, options_json, example, notes, due, interval, ease, reps),
+            "due = excluded.due, interval = excluded.interval, ease = excluded.ease, reps = excluded.reps, "
+            "lapses = excluded.lapses",
+            (user_id, external_id, topic, question, answer, options_json, example, notes, due, interval, ease, reps, lapses),
         )
 
     # A card no longer in the desktop's deck (deleted there) drops out here too.
@@ -687,17 +698,19 @@ def api_card_review(card_id):
     if not row:
         return jsonify({"error": "not found"}), 404
 
-    updated = apply_review_result({"ease": row["ease"], "reps": row["reps"], "interval": row["interval"]}, confidence)
+    updated = apply_review_result(
+        {"ease": row["ease"], "reps": row["reps"], "interval": row["interval"], "lapses": row["lapses"]}, confidence
+    )
     db.execute(
-        "UPDATE synced_cards SET due = ?, interval = ?, ease = ?, reps = ? WHERE id = ?",
-        (updated["due"], updated["interval"], updated["ease"], updated["reps"], card_id),
+        "UPDATE synced_cards SET due = ?, interval = ?, ease = ?, reps = ?, lapses = ? WHERE id = ?",
+        (updated["due"], updated["interval"], updated["ease"], updated["reps"], updated["lapses"], card_id),
     )
     db.execute(
         "INSERT INTO card_review_events (user_id, external_id, confidence, reviewed_at) VALUES (?, ?, ?, ?)",
         (user_id, row["external_id"], confidence, datetime.datetime.now().isoformat()),
     )
     result = card_row_to_dict(row)
-    result.update(due=updated["due"], interval=updated["interval"], ease=updated["ease"], reps=updated["reps"])
+    result.update(due=updated["due"], interval=updated["interval"], ease=updated["ease"], reps=updated["reps"], lapses=updated["lapses"])
     return jsonify(result)
 
 
