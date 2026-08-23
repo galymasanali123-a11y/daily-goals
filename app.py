@@ -151,6 +151,12 @@ def init_db():
         db.execute("ALTER TABLE card_review_events ADD COLUMN confidence INTEGER NOT NULL DEFAULT 3")
         if "correct" in review_columns:
             db.execute("UPDATE card_review_events SET confidence = CASE WHEN correct = 1 THEN 3 ELSE 1 END")
+    if "consumed" not in review_columns:
+        # Events used to be deleted the moment the desktop pulled them, which meant a "reviews
+        # this week" count couldn't survive a desktop sync. Mark-as-consumed instead, so the
+        # weekly digest can still count them; old (already-consumed) rows get cleaned up
+        # opportunistically after 30 days instead of growing the table forever.
+        db.execute("ALTER TABLE card_review_events ADD COLUMN consumed INTEGER NOT NULL DEFAULT 0")
     db.execute(
         """CREATE TABLE IF NOT EXISTS new_card_intro_state (
             user_id INTEGER PRIMARY KEY REFERENCES users(id),
@@ -360,6 +366,47 @@ def cards_for_user(db, user_id):
     return [card_row_to_dict(row) for row in rows]
 
 
+def weakest_topic(cards):
+    """Same idea as the desktop app's topic_weakness_report(), just returning the single
+    weakest topic (lowest average ease) for the digest instead of the full ranked list."""
+    topics = {}
+    for card in cards:
+        if card["reps"] == 0 and card["lapses"] == 0:
+            continue
+        stats = topics.setdefault(card["topic"], {"ease_total": 0.0, "count": 0})
+        stats["ease_total"] += card["ease"]
+        stats["count"] += 1
+    if not topics:
+        return None
+    ranked = sorted(topics.items(), key=lambda item: item[1]["ease_total"] / item[1]["count"])
+    topic, stats = ranked[0]
+    return {"topic": topic, "avg_ease": round(stats["ease_total"] / stats["count"], 2)}
+
+
+def weekly_digest(db, user_id):
+    """Sunday-summary data: streak, goals completed and flashcards reviewed in the last 7
+    days, and the weakest topic right now -- reuses data already computed elsewhere rather
+    than tracking anything new (except reviews-this-week, backed by card_review_events)."""
+    week_ago = (datetime.date.today() - datetime.timedelta(days=6)).isoformat()
+    goals_this_week = query_one(
+        db,
+        "SELECT COUNT(*) AS n FROM completions c JOIN goals g ON g.id = c.goal_id "
+        "WHERE g.user_id = ? AND c.date >= ? AND c.done = 1",
+        (user_id, week_ago),
+    )["n"]
+    reviews_this_week = query_one(
+        db,
+        "SELECT COUNT(*) AS n FROM card_review_events WHERE user_id = ? AND reviewed_at >= ?",
+        (user_id, week_ago),
+    )["n"]
+    return {
+        "streak": compute_streak(db, user_id),
+        "goals_completed": goals_this_week,
+        "reviews_completed": reviews_this_week,
+        "weakest_topic": weakest_topic(cards_for_user(db, user_id)),
+    }
+
+
 NEW_CARDS_PER_DAY = 20
 
 
@@ -449,6 +496,12 @@ def api_history():
         )["n"]
         days.append({"date": day, "count": count})
     return jsonify({"days": days, "total_goals": total_goals})
+
+
+@app.route("/api/weekly-digest")
+@login_required
+def api_weekly_digest():
+    return jsonify(weekly_digest(get_db(), session["user_id"]))
 
 
 @app.route("/api/toggle/<int:goal_id>", methods=["POST"])
@@ -615,18 +668,23 @@ def api_cards():
 def api_cards_pull_reviews():
     """The desktop app calls this before pushing: fetch review events made on the phone since the
     last sync (oldest first, so SM-2 intervals apply in the order they actually happened), then
-    clear them out — they're consumed exactly once."""
+    mark them consumed -- each event is applied exactly once, but (unlike a hard delete) it stays
+    around long enough for the weekly digest to still count it toward "reviews this week"."""
     db = get_db()
     user_id = session["user_id"]
     rows = query_all(
         db,
         "SELECT id, external_id, confidence, reviewed_at FROM card_review_events "
-        "WHERE user_id = ? ORDER BY reviewed_at, id",
+        "WHERE user_id = ? AND consumed = 0 ORDER BY reviewed_at, id",
         (user_id,),
     )
     events = [{"external_id": row["external_id"], "confidence": row["confidence"], "reviewed_at": row["reviewed_at"]} for row in rows]
     if rows:
-        db.execute("DELETE FROM card_review_events WHERE user_id = ?", (user_id,))
+        db.execute("UPDATE card_review_events SET consumed = 1 WHERE user_id = ? AND consumed = 0", (user_id,))
+    # Opportunistic cleanup so this table doesn't grow forever -- old consumed rows have already
+    # done their job (SM-2 applied, digest counted them if recent enough).
+    cutoff = (datetime.date.today() - datetime.timedelta(days=30)).isoformat()
+    db.execute("DELETE FROM card_review_events WHERE user_id = ? AND consumed = 1 AND reviewed_at < ?", (user_id, cutoff))
     return jsonify({"events": events})
 
 

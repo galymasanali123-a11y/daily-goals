@@ -8,6 +8,8 @@
   const addForm = document.getElementById("add-goal-form");
   const addInput = document.getElementById("add-goal-input");
   const historyStrip = document.getElementById("history-strip");
+  const digestCard = document.getElementById("digest-card");
+  const digestBody = document.getElementById("digest-body");
   const toast = document.getElementById("toast");
 
   let editingId = null;
@@ -112,6 +114,33 @@
       renderHistory(await api("/api/history"));
     } catch (error) {
       // history is a nice-to-have; a silent failure here shouldn't block the rest of the app
+    }
+  }
+
+  function renderDigest(digest) {
+    if (!digestCard || !digestBody) return;
+    const nothingYet = digest.streak === 0 && digest.goals_completed === 0 && digest.reviews_completed === 0 && !digest.weakest_topic;
+    if (nothingYet) {
+      digestCard.style.display = "none";
+      return;
+    }
+    let html = `
+      <div class="digest-row"><span>Day streak</span><span class="digest-value">🔥 ${digest.streak}</span></div>
+      <div class="digest-row"><span>Goals completed</span><span class="digest-value">${digest.goals_completed}</span></div>
+      <div class="digest-row"><span>Flashcards reviewed</span><span class="digest-value">${digest.reviews_completed}</span></div>
+    `;
+    if (digest.weakest_topic) {
+      html += `<div class="digest-weak-topic">Weakest topic right now: <strong>${escapeHTML(digest.weakest_topic.topic)}</strong> (ease ${digest.weakest_topic.avg_ease})</div>`;
+    }
+    digestBody.innerHTML = html;
+    digestCard.style.display = "";
+  }
+
+  async function refreshDigest() {
+    try {
+      renderDigest(await api("/api/weekly-digest"));
+    } catch (error) {
+      // same as history -- nice-to-have, shouldn't block the rest of the page
     }
   }
 
@@ -246,4 +275,5 @@
   });
 
   refreshHistory();
+  refreshDigest();
 })();
