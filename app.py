@@ -34,6 +34,12 @@ if os.environ.get("RENDER") and not TURSO_DATABASE_URL:
 
 DB_URL = TURSO_DATABASE_URL or f"file:{os.environ.get('DB_PATH', 'daily_goals.db')}"
 STATIC_DIR = Path(__file__).parent / "static"
+SHARED_DECKS_DIR = Path(__file__).parent / "shared_decks"
+# A fixed allowlist (code -> filename, label) rather than resolving user input straight to a
+# path -- keeps an arbitrary share code from ever reading outside this directory.
+SHARED_DECKS = {
+    "GOETHE-A1": ("goethe-a1.json", "Goethe-Institut A1 wordlist"),
+}
 
 app = Flask(__name__)
 app.secret_key = SECRET_KEY
@@ -739,6 +745,41 @@ def api_cards_sync():
             db.execute("DELETE FROM synced_cards WHERE id = ?", (row["id"],))
 
     return jsonify({"card_count": len(incoming_ids)})
+
+
+@app.route("/api/import-shared-deck", methods=["POST"])
+@login_required
+def api_import_shared_deck():
+    """Add a bundled deck (see SHARED_DECKS) to the caller's own account -- e.g. sharing a
+    coursemate a copy of a deck without either side ever handling the other's password. Cards
+    land fresh (due today, no review history) so the importer starts their own review cycle,
+    regardless of what progress the original owner had made on their copy."""
+    payload = request.get_json(silent=True) or {}
+    code = str(payload.get("code", "")).strip().upper()
+    entry = SHARED_DECKS.get(code)
+    if not entry:
+        return jsonify({"error": "That share code doesn't match a shared deck."}), 404
+    filename, label = entry
+    cards = json.loads((SHARED_DECKS_DIR / filename).read_text(encoding="utf-8"))
+
+    db = get_db()
+    user_id = session["user_id"]
+    for card in cards:
+        db.execute(
+            "INSERT INTO synced_cards (user_id, external_id, topic, question, answer, options_json, "
+            "example, notes, due, interval, ease, reps, lapses) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(user_id, external_id) DO UPDATE SET "
+            "topic = excluded.topic, question = excluded.question, answer = excluded.answer, "
+            "options_json = excluded.options_json, example = excluded.example, notes = excluded.notes, "
+            "due = excluded.due, interval = excluded.interval, ease = excluded.ease, reps = excluded.reps, "
+            "lapses = excluded.lapses",
+            (
+                user_id, card["external_id"], card["topic"], card["question"], card["answer"],
+                json.dumps(card.get("options") or []), card.get("example", ""), card.get("notes", ""),
+                card["due"], card["interval"], card["ease"], card["reps"], card["lapses"],
+            ),
+        )
+    return jsonify({"card_count": len(cards), "label": label})
 
 
 @app.route("/api/cards/<int:card_id>/review", methods=["POST"])

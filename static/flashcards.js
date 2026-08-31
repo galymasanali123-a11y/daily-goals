@@ -3,6 +3,9 @@
 
   const topicFilter = document.getElementById("topic-filter");
   const emptyCards = document.getElementById("empty-cards");
+  const importDeckCard = document.getElementById("import-deck-card");
+  const importDeckForm = document.getElementById("import-deck-form");
+  const importDeckCode = document.getElementById("import-deck-code");
   const allCaughtUp = document.getElementById("all-caught-up");
   const studyArea = document.getElementById("study-area");
   const studyProgress = document.getElementById("study-progress");
@@ -84,11 +87,13 @@
 
     if (allCards.length === 0) {
       emptyCards.style.display = "";
+      importDeckCard.style.display = "";
       studyArea.style.display = "none";
       allCaughtUp.style.display = "none";
       return;
     }
     emptyCards.style.display = "none";
+    importDeckCard.style.display = "none";
 
     if (queue.length === 0) {
       studyArea.style.display = "none";
@@ -133,6 +138,20 @@
     const button = event.target.closest("button[data-confidence]");
     if (!button) return;
     submitReview(parseInt(button.dataset.confidence, 10));
+  });
+
+  importDeckForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const code = importDeckCode.value.trim();
+    if (!code) return;
+    try {
+      const result = await api("/api/import-shared-deck", { method: "POST", body: JSON.stringify({ code }) });
+      showToast(`Added ${result.card_count} cards from ${result.label}.`);
+      importDeckCode.value = "";
+      await load();
+    } catch (error) {
+      showToast(error.message);
+    }
   });
 
   async function load() {
