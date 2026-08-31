@@ -49,10 +49,11 @@ app.secret_key = SECRET_KEY
 app.config["PERMANENT_SESSION_LIFETIME"] = datetime.timedelta(days=365)
 # A book collection can be large, but a single synced book shouldn't be -- caps one accidental
 # giant upload rather than letting it exhaust memory or blow past Turso's row-size limits.
-# 100 MB comfortably covers everything except one particularly large PDF (~300 MB) that would
-# need a different approach (streaming instead of loading the whole file into memory) rather
-# than just a bigger number here -- raise further only after confirming this tier is stable.
-MAX_BOOK_SIZE = 100 * 1024 * 1024
+# An 84 MB real-world upload crashed the free-tier instance (OOM, most likely -- the body gets
+# buffered in memory at least twice: once by Flask, again when libsql_client serializes it to
+# send to Turso). 60 MB is the largest size actually confirmed stable in production; going
+# higher needs a streaming upload (or more RAM) rather than just a bigger number here.
+MAX_BOOK_SIZE = 60 * 1024 * 1024
 app.config["MAX_CONTENT_LENGTH"] = MAX_BOOK_SIZE + (1024 * 1024)
 INLINE_BOOK_TYPES = {"application/pdf", "text/plain", "text/markdown"}
 
