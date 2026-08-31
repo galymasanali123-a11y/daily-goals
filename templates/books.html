@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block subtitle %}Books synced from your desktop{% endblock %}
+{% block content %}
+
+<div class="nav-tabs">
+  <a class="nav-tab" href="{{ url_for('index') }}">Goals</a>
+  <a class="nav-tab" href="{{ url_for('flashcards_page') }}">Flashcards</a>
+  <span class="nav-tab active">Books</span>
+</div>
+
+{% if not books %}
+<div class="card empty-state">
+  Nothing synced yet — open the desktop app, flag a book to sync, and send it to your phone.
+</div>
+{% else %}
+<div class="card">
+  <h2>My books</h2>
+  {% for book in books %}
+    <a class="book-row" href="{{ url_for('book_file', book_id=book.id) }}" target="_blank" rel="noopener"
+       {% if not book.inline %}download="{{ book.filename }}"{% endif %}>
+      <span class="book-title">{{ book.title }}</span>
+      <span class="book-meta">{{ book.size }}{{ '' if book.inline else ' · downloads to open' }}</span>
+    </a>
+  {% endfor %}
+</div>
+{% endif %}
+
+{% endblock %}

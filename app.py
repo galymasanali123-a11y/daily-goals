@@ -15,7 +15,7 @@ from functools import wraps
 from pathlib import Path
 
 import libsql_client
-from flask import Flask, g, jsonify, redirect, render_template, request, send_from_directory, session, url_for
+from flask import Flask, Response, abort, g, jsonify, redirect, render_template, request, send_from_directory, session, url_for
 from werkzeug.security import check_password_hash, generate_password_hash
 
 SECRET_KEY = os.environ.get("SECRET_KEY", "dev-secret-change-in-production")
@@ -47,6 +47,11 @@ app.secret_key = SECRET_KEY
 # Flask's default permanent-session lifetime is only 31 days, which reads as "randomly signed
 # out" on an app people check daily. A year is effectively "don't sign me out".
 app.config["PERMANENT_SESSION_LIFETIME"] = datetime.timedelta(days=365)
+# A book collection can be large, but a single synced book shouldn't be -- caps one accidental
+# giant upload rather than letting it exhaust memory or blow past Turso's row-size limits.
+MAX_BOOK_SIZE = 60 * 1024 * 1024
+app.config["MAX_CONTENT_LENGTH"] = MAX_BOOK_SIZE + (1024 * 1024)
+INLINE_BOOK_TYPES = {"application/pdf", "text/plain", "text/markdown"}
 
 
 def connect_db():
@@ -168,6 +173,19 @@ def init_db():
             user_id INTEGER PRIMARY KEY REFERENCES users(id),
             date TEXT NOT NULL,
             ids_json TEXT NOT NULL DEFAULT '[]'
+        )"""
+    )
+    db.execute(
+        """CREATE TABLE IF NOT EXISTS synced_books (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL REFERENCES users(id),
+            external_id TEXT NOT NULL,
+            title TEXT NOT NULL,
+            filename TEXT NOT NULL,
+            content_type TEXT NOT NULL DEFAULT 'application/octet-stream',
+            size_bytes INTEGER NOT NULL DEFAULT 0,
+            content BLOB NOT NULL,
+            UNIQUE(user_id, external_id)
         )"""
     )
     db.close()
@@ -811,6 +829,128 @@ def api_card_review(card_id):
     result = card_row_to_dict(row)
     result.update(due=updated["due"], interval=updated["interval"], ease=updated["ease"], reps=updated["reps"], lapses=updated["lapses"])
     return jsonify(result)
+
+
+def format_book_size(size_bytes):
+    if size_bytes < 1024 * 1024:
+        return f"{size_bytes / 1024:.0f} KB"
+    return f"{size_bytes / (1024 * 1024):.1f} MB"
+
+
+@app.route("/books")
+@login_required
+def books_page():
+    db = get_db()
+    rows = query_all(
+        db,
+        "SELECT id, title, filename, content_type, size_bytes FROM synced_books "
+        "WHERE user_id = ? ORDER BY title COLLATE NOCASE",
+        (session["user_id"],),
+    )
+    books = [
+        {
+            "id": row["id"],
+            "title": row["title"],
+            "filename": row["filename"],
+            "inline": row["content_type"] in INLINE_BOOK_TYPES,
+            "size": format_book_size(row["size_bytes"]),
+        }
+        for row in rows
+    ]
+    return render_template("books.html", books=books)
+
+
+@app.route("/api/books", methods=["GET"])
+@login_required
+def api_books():
+    db = get_db()
+    rows = query_all(
+        db,
+        "SELECT id, external_id, title, filename, content_type, size_bytes FROM synced_books "
+        "WHERE user_id = ? ORDER BY title COLLATE NOCASE",
+        (session["user_id"],),
+    )
+    books = [
+        {
+            "id": row["id"], "external_id": row["external_id"], "title": row["title"],
+            "filename": row["filename"], "content_type": row["content_type"], "size_bytes": row["size_bytes"],
+        }
+        for row in rows
+    ]
+    return jsonify({"books": books})
+
+
+@app.route("/api/books/upload", methods=["POST"])
+@login_required
+def api_books_upload():
+    """The desktop app pushes one book's raw bytes here per call (query string carries the
+    metadata, the body is the file itself) -- only for books the student has explicitly
+    flagged to sync, since a full book collection is too large to mirror wholesale."""
+    external_id = request.args.get("external_id", "").strip()
+    title = request.args.get("title", "").strip()
+    filename = request.args.get("filename", "").strip()
+    if not external_id or not title or not filename:
+        return jsonify({"error": "external_id, title, and filename are required"}), 400
+
+    content = request.get_data()
+    if not content:
+        return jsonify({"error": "no file content received"}), 400
+    if len(content) > MAX_BOOK_SIZE:
+        return jsonify({"error": f"file is larger than the {MAX_BOOK_SIZE // (1024 * 1024)} MB per-book sync limit"}), 413
+
+    content_type = request.content_type or "application/octet-stream"
+    if ";" in content_type:  # strip a charset parameter etc., e.g. "text/plain; charset=utf-8"
+        content_type = content_type.split(";", 1)[0].strip()
+
+    db = get_db()
+    db.execute(
+        "INSERT INTO synced_books (user_id, external_id, title, filename, content_type, size_bytes, content) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?) "
+        "ON CONFLICT(user_id, external_id) DO UPDATE SET "
+        "title = excluded.title, filename = excluded.filename, content_type = excluded.content_type, "
+        "size_bytes = excluded.size_bytes, content = excluded.content",
+        (session["user_id"], external_id, title, filename, content_type, len(content), content),
+    )
+    return jsonify({"external_id": external_id, "size_bytes": len(content)})
+
+
+@app.route("/api/books/finalize-sync", methods=["POST"])
+@login_required
+def api_books_finalize_sync():
+    """Desktop is authoritative for which books are flagged to sync -- after pushing every
+    currently-flagged book's content, it calls this with the full list of external_ids that
+    should exist, so un-flagging a book on desktop removes it from the phone too."""
+    payload = request.get_json(silent=True) or {}
+    keep_ids = payload.get("external_ids", [])
+    if not isinstance(keep_ids, list):
+        return jsonify({"error": "external_ids must be a list"}), 400
+
+    db = get_db()
+    user_id = session["user_id"]
+    existing = query_all(db, "SELECT id, external_id FROM synced_books WHERE user_id = ?", (user_id,))
+    keep_ids = set(keep_ids)
+    dropped = 0
+    for row in existing:
+        if row["external_id"] not in keep_ids:
+            db.execute("DELETE FROM synced_books WHERE id = ?", (row["id"],))
+            dropped += 1
+    return jsonify({"dropped": dropped})
+
+
+@app.route("/books/<int:book_id>/file")
+@login_required
+def book_file(book_id):
+    db = get_db()
+    row = query_one(
+        db, "SELECT title, filename, content_type, content FROM synced_books WHERE id = ? AND user_id = ?",
+        (book_id, session["user_id"]),
+    )
+    if not row:
+        abort(404)
+    disposition = "inline" if row["content_type"] in INLINE_BOOK_TYPES else "attachment"
+    response = Response(bytes(row["content"]), mimetype=row["content_type"])
+    response.headers["Content-Disposition"] = f'{disposition}; filename="{row["filename"]}"'
+    return response
 
 
 init_db()
