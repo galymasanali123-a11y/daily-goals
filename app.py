@@ -961,4 +961,19 @@ init_db()
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
+    local = not os.environ.get("RENDER")
+    if local:
+        # Without this, Flask keeps the previous HTML in memory, so login/register
+        # edits never show until the process is killed and started again.
+        app.config["TEMPLATES_AUTO_RELOAD"] = True
+        app.jinja_env.auto_reload = True
+        if "PORT" not in os.environ:
+            import socket
+            probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            in_use = probe.connect_ex(("127.0.0.1", port)) == 0
+            probe.close()
+            if in_use:
+                # macOS AirPlay Receiver commonly occupies 5000.
+                port = 5001
+                print(f"Port 5000 is already in use. Open http://127.0.0.1:{port} instead.")
     app.run(host="0.0.0.0", port=port, debug=False)

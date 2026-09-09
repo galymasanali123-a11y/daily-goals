@@ -26,7 +26,7 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
 
   // Never cache API calls or auth pages — always go to the network so data stays live.
-  if (url.pathname.startsWith("/api/") || url.pathname.startsWith("/login") || url.pathname.startsWith("/logout")) {
+  if (url.pathname.startsWith("/api/") || url.pathname.startsWith("/login") || url.pathname.startsWith("/register") || url.pathname.startsWith("/logout")) {
     return;
   }
 
