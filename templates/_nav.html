@@ -1,0 +1,7 @@
+<div class="nav-tabs">
+  <a class="nav-tab {% if active_nav == 'goals' %}active{% endif %}" href="{{ url_for('index') }}">Goals</a>
+  <a class="nav-tab {% if active_nav == 'learn' %}active{% endif %}" href="{{ url_for('learn_page') }}">Learn</a>
+  <a class="nav-tab {% if active_nav == 'cards' %}active{% endif %}" href="{{ url_for('flashcards_page') }}">Cards</a>
+  <a class="nav-tab {% if active_nav == 'books' %}active{% endif %}" href="{{ url_for('books_page') }}">Books</a>
+  <a class="nav-tab" href="{{ request.path }}" target="_blank" rel="noopener" title="Open this page in a new tab">↗</a>
+</div>

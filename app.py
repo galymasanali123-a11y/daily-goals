@@ -1,11 +1,11 @@
 """Daily Goals — a small, mobile-friendly daily routine tracker, installable as a PWA.
 
 Multi-user: each person registers their own account and sees only their own goals.
-Storage is libSQL (SQLite-compatible): a local file when run locally, or a Turso
-database in production so data survives redeploys (Render's local disk doesn't).
+Storage is Supabase Postgres in production (DATABASE_URL) so data survives
+redeploys; a local SQLite file is used when that URL is not set.
 
 Run locally with: py app.py
-Deploy: see README.md for Render.com + Turso instructions.
+Deploy: see README.md for Render.com + Supabase instructions.
 """
 
 import datetime
@@ -14,25 +14,14 @@ import os
 from functools import wraps
 from pathlib import Path
 
-import libsql_client
 from flask import Flask, Response, abort, g, jsonify, redirect, render_template, request, send_from_directory, session, url_for
 from werkzeug.security import check_password_hash, generate_password_hash
 
+from db import INTEGRITY_ERRORS, connect_db, init_db, query_all, query_one
+from learn_routes import register_learn_routes
+import srs
+
 SECRET_KEY = os.environ.get("SECRET_KEY", "dev-secret-change-in-production")
-TURSO_DATABASE_URL = os.environ.get("TURSO_DATABASE_URL")
-TURSO_AUTH_TOKEN = os.environ.get("TURSO_AUTH_TOKEN")
-
-# Render's local disk is wiped on every redeploy. Falling back to it silently here has, in
-# practice, silently deleted every account on the next deploy with no error anywhere -- refuse
-# to start on Render at all without Turso configured, rather than repeat that quietly.
-if os.environ.get("RENDER") and not TURSO_DATABASE_URL:
-    raise RuntimeError(
-        "TURSO_DATABASE_URL is not set. Running on Render without it means every account and "
-        "goal is stored on disk that gets wiped on the next deploy. Set TURSO_DATABASE_URL and "
-        "TURSO_AUTH_TOKEN in the Render dashboard's Environment tab, then redeploy."
-    )
-
-DB_URL = TURSO_DATABASE_URL or f"file:{os.environ.get('DB_PATH', 'daily_goals.db')}"
 STATIC_DIR = Path(__file__).parent / "static"
 SHARED_DECKS_DIR = Path(__file__).parent / "shared_decks"
 # A fixed allowlist (code -> filename, label) rather than resolving user input straight to a
@@ -43,32 +32,39 @@ SHARED_DECKS = {
 
 app = Flask(__name__)
 app.secret_key = SECRET_KEY
+
+
+@app.context_processor
+def inject_layout():
+    path = request.path
+    if path.startswith("/learn"):
+        nav = "learn"
+    elif path.startswith("/flashcards"):
+        nav = "cards"
+    elif path.startswith("/books"):
+        nav = "books"
+    elif path in {"/login", "/register"}:
+        nav = ""
+    else:
+        nav = "goals"
+    return {
+        "active_nav": nav,
+        "is_auth_page": path in {"/login", "/register"},
+        "wide_layout": path.startswith("/learn") or (path.startswith("/books/") and "/file" not in path),
+    }
 # Sessions are marked permanent on login/register (session.permanent = True) -- without this,
 # Flask's default permanent-session lifetime is only 31 days, which reads as "randomly signed
 # out" on an app people check daily. A year is effectively "don't sign me out".
 app.config["PERMANENT_SESSION_LIFETIME"] = datetime.timedelta(days=365)
 # A book collection can be large, but a single synced book shouldn't be -- caps one accidental
-# giant upload rather than letting it exhaust memory or blow past Turso's row-size limits.
-# An 84 MB real-world upload crashed the free-tier instance (OOM, most likely -- the body gets
-# buffered in memory at least twice: once by Flask, again when libsql_client serializes it to
-# send to Turso). 60 MB is the largest size actually confirmed stable in production; going
-# higher needs a streaming upload (or more RAM) rather than just a bigger number here.
+# giant upload rather than letting it exhaust memory. An 84 MB real-world upload crashed the
+# free-tier instance (OOM, most likely -- the body gets buffered in memory at least twice:
+# once by Flask, again when the DB client serializes it). 60 MB is the largest size actually
+# confirmed stable in production; going higher needs a streaming upload (or more RAM) rather
+# than just a bigger number here.
 MAX_BOOK_SIZE = 60 * 1024 * 1024
 app.config["MAX_CONTENT_LENGTH"] = MAX_BOOK_SIZE + (1024 * 1024)
 INLINE_BOOK_TYPES = {"application/pdf", "text/plain", "text/markdown"}
-
-
-def connect_db():
-    return libsql_client.create_client_sync(DB_URL, auth_token=TURSO_AUTH_TOKEN)
-
-
-def query_one(db, sql, params=()):
-    rows = db.execute(sql, params).rows
-    return rows[0] if rows else None
-
-
-def query_all(db, sql, params=()):
-    return db.execute(sql, params).rows
 
 
 def get_db():
@@ -82,117 +78,6 @@ def close_db(exception=None):
     db = g.pop("db", None)
     if db is not None:
         db.close()
-
-
-def init_db():
-    db = connect_db()
-    db.execute(
-        """CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT UNIQUE NOT NULL,
-            email TEXT NOT NULL DEFAULT '',
-            password_hash TEXT NOT NULL
-        )"""
-    )
-    # Migrate a database created before the email column existed.
-    user_columns = {row["name"] for row in db.execute("PRAGMA table_info(users)").rows}
-    if "email" not in user_columns:
-        db.execute("ALTER TABLE users ADD COLUMN email TEXT NOT NULL DEFAULT ''")
-    # A real (case-insensitive) uniqueness guarantee — "Alice" and "alice" can't both register.
-    db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username_nocase ON users(username COLLATE NOCASE)")
-    db.execute(
-        """CREATE TABLE IF NOT EXISTS goals (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER NOT NULL REFERENCES users(id),
-            text TEXT NOT NULL,
-            sort_order INTEGER NOT NULL
-        )"""
-    )
-    db.execute(
-        """CREATE TABLE IF NOT EXISTS completions (
-            goal_id INTEGER NOT NULL REFERENCES goals(id),
-            date TEXT NOT NULL,
-            done INTEGER NOT NULL DEFAULT 0,
-            PRIMARY KEY (goal_id, date)
-        )"""
-    )
-    db.execute(
-        """CREATE TABLE IF NOT EXISTS synced_tasks (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER NOT NULL REFERENCES users(id),
-            external_id TEXT NOT NULL,
-            date TEXT NOT NULL,
-            text TEXT NOT NULL,
-            time TEXT NOT NULL DEFAULT '',
-            task_type TEXT NOT NULL DEFAULT 'Task',
-            done INTEGER NOT NULL DEFAULT 0,
-            UNIQUE(user_id, external_id)
-        )"""
-    )
-    db.execute(
-        """CREATE TABLE IF NOT EXISTS synced_cards (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER NOT NULL REFERENCES users(id),
-            external_id TEXT NOT NULL,
-            topic TEXT NOT NULL,
-            question TEXT NOT NULL,
-            answer TEXT NOT NULL,
-            options_json TEXT NOT NULL DEFAULT '[]',
-            example TEXT NOT NULL DEFAULT '',
-            notes TEXT NOT NULL DEFAULT '',
-            due TEXT NOT NULL DEFAULT '0000-00-00',
-            interval INTEGER NOT NULL DEFAULT 1,
-            ease REAL NOT NULL DEFAULT 2.5,
-            reps INTEGER NOT NULL DEFAULT 0,
-            UNIQUE(user_id, external_id)
-        )"""
-    )
-    # Migrate a database created before leech tracking existed.
-    card_columns = {row["name"] for row in db.execute("PRAGMA table_info(synced_cards)").rows}
-    if "lapses" not in card_columns:
-        db.execute("ALTER TABLE synced_cards ADD COLUMN lapses INTEGER NOT NULL DEFAULT 0")
-    db.execute(
-        """CREATE TABLE IF NOT EXISTS card_review_events (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER NOT NULL REFERENCES users(id),
-            external_id TEXT NOT NULL,
-            confidence INTEGER NOT NULL DEFAULT 3,
-            reviewed_at TEXT NOT NULL
-        )"""
-    )
-    # Migrate a database created before confidence ratings existed (was a plain correct/wrong flag).
-    review_columns = {row["name"] for row in db.execute("PRAGMA table_info(card_review_events)").rows}
-    if "confidence" not in review_columns:
-        db.execute("ALTER TABLE card_review_events ADD COLUMN confidence INTEGER NOT NULL DEFAULT 3")
-        if "correct" in review_columns:
-            db.execute("UPDATE card_review_events SET confidence = CASE WHEN correct = 1 THEN 3 ELSE 1 END")
-    if "consumed" not in review_columns:
-        # Events used to be deleted the moment the desktop pulled them, which meant a "reviews
-        # this week" count couldn't survive a desktop sync. Mark-as-consumed instead, so the
-        # weekly digest can still count them; old (already-consumed) rows get cleaned up
-        # opportunistically after 30 days instead of growing the table forever.
-        db.execute("ALTER TABLE card_review_events ADD COLUMN consumed INTEGER NOT NULL DEFAULT 0")
-    db.execute(
-        """CREATE TABLE IF NOT EXISTS new_card_intro_state (
-            user_id INTEGER PRIMARY KEY REFERENCES users(id),
-            date TEXT NOT NULL,
-            ids_json TEXT NOT NULL DEFAULT '[]'
-        )"""
-    )
-    db.execute(
-        """CREATE TABLE IF NOT EXISTS synced_books (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER NOT NULL REFERENCES users(id),
-            external_id TEXT NOT NULL,
-            title TEXT NOT NULL,
-            filename TEXT NOT NULL,
-            content_type TEXT NOT NULL DEFAULT 'application/octet-stream',
-            size_bytes INTEGER NOT NULL DEFAULT 0,
-            content BLOB NOT NULL,
-            UNIQUE(user_id, external_id)
-        )"""
-    )
-    db.close()
 
 
 def login_required(view):
@@ -224,19 +109,20 @@ def register():
             error = "Password must be at least 4 characters."
         else:
             db = get_db()
-            existing = query_one(db, "SELECT id FROM users WHERE username = ? COLLATE NOCASE", (username,))
+            existing = query_one(db, "SELECT id FROM users WHERE LOWER(username) = LOWER(?)", (username,))
             if existing:
                 error = "That username is already taken."
             else:
                 try:
-                    result = db.execute(
-                        "INSERT INTO users (username, email, password_hash) VALUES (?, ?, ?)",
+                    created = query_one(
+                        db,
+                        "INSERT INTO users (username, email, password_hash) VALUES (?, ?, ?) RETURNING id",
                         (username, email, generate_password_hash(password)),
                     )
-                except Exception:
+                except INTEGRITY_ERRORS:
                     error = "That username is already taken."
                 else:
-                    session["user_id"] = result.last_insert_rowid
+                    session["user_id"] = created["id"]
                     session["username"] = username
                     session.permanent = True
                     return redirect(url_for("index"))
@@ -250,7 +136,7 @@ def login():
         username = request.form.get("username", "").strip()
         password = request.form.get("password", "")
         db = get_db()
-        user = query_one(db, "SELECT * FROM users WHERE username = ? COLLATE NOCASE", (username,))
+        user = query_one(db, "SELECT * FROM users WHERE LOWER(username) = LOWER(?)", (username,))
         if user and check_password_hash(user["password_hash"], password):
             session["user_id"] = user["id"]
             session["username"] = user["username"]
@@ -331,44 +217,16 @@ def synced_tasks_for_today(db, user_id):
 
 
 CONFIDENCE_LABELS = {1: "Again", 2: "Hard", 3: "Good", 4: "Easy"}
+LEECH_THRESHOLD = 8
 
 
-def apply_review_result(card_state, confidence):
-    """Same SM-2-lite schedule as the desktop app (main.py / medstudy_gui.py) — kept in sync by hand
-    since this Flask service has no shared package with the desktop code. 1=Again, 2=Hard,
-    3=Good, 4=Easy; "Again" always resets the card, higher confidence grows the interval faster."""
-    confidence = max(1, min(4, int(confidence)))
-    ease = card_state.get("ease", 2.5)
-    reps = card_state.get("reps", 0)
-
-    if confidence == 1:
-        reps = 0
-        interval = 1
-        ease = max(1.3, ease - 0.2)
-    else:
-        reps += 1
-        if reps == 1:
-            interval = 1
-        elif reps == 2:
-            interval = 6
-        else:
-            interval = round(card_state.get("interval", 1) * ease)
-
-        if confidence == 2:
-            interval = max(1, round(interval * 0.6))
-            ease = max(1.3, ease - 0.15)
-        elif confidence == 3:
-            ease = min(2.6, ease + 0.1)
-        else:  # confidence == 4, Easy
-            interval = round(interval * 1.3)
-            ease = min(2.8, ease + 0.15)
-
-    due = (datetime.date.today() + datetime.timedelta(days=interval)).isoformat()
-    lapses = card_state.get("lapses", 0) + (1 if confidence == 1 else 0)
-    return {"reps": reps, "interval": interval, "ease": round(ease, 2), "due": due, "lapses": lapses}
-
-
-LEECH_THRESHOLD = 4
+def row_get(row, key, default=None):
+    if isinstance(row, dict):
+        return row.get(key, default)
+    try:
+        return row[key]
+    except (KeyError, IndexError):
+        return default
 
 
 def card_row_to_dict(row):
@@ -386,6 +244,10 @@ def card_row_to_dict(row):
         "ease": row["ease"],
         "reps": row["reps"],
         "lapses": row["lapses"],
+        "queue": int(row_get(row, "queue", 0) or 0),
+        "due_at": row_get(row, "due_at", "") or "",
+        "learn_step": int(row_get(row, "learn_step", 0) or 0),
+        "source": row_get(row, "source", "desktop") or "desktop",
     }
 
 
@@ -435,34 +297,61 @@ def weekly_digest(db, user_id):
     }
 
 
-NEW_CARDS_PER_DAY = 20
+def load_srs_settings(db, user_id):
+    row = query_one(
+        db,
+        "SELECT new_per_day, reviews_per_day, notify_enabled, notify_hour FROM srs_settings WHERE user_id = ?",
+        (user_id,),
+    )
+    if not row:
+        return srs.default_settings()
+    return {
+        "new_per_day": int(row["new_per_day"]),
+        "reviews_per_day": int(row["reviews_per_day"]),
+        "notify_enabled": int(row["notify_enabled"]),
+        "notify_hour": int(row["notify_hour"]),
+    }
 
 
-def select_study_cards(cards, db, user_id, new_limit=NEW_CARDS_PER_DAY):
-    """External ids of cards actually worth studying today: every card already in the review
-    cycle that's due, plus up to `new_limit` never-reviewed cards -- same "new cards/day" cap
-    as the desktop app, mirrored here so the phone doesn't dump an entire freshly-synced deck
-    on you at once. State persists per user across a day so the set stays stable on reload.
+def load_day_counts(db, user_id, today):
+    row = query_one(
+        db, "SELECT new_shown, reviews_shown FROM srs_day_counts WHERE user_id = ? AND date = ?", (user_id, today)
+    )
+    if not row:
+        return 0, 0
+    return int(row["new_shown"] or 0), int(row["reviews_shown"] or 0)
+
+
+def bump_day_count(db, user_id, today, new=0, review=0):
+    db.execute(
+        "INSERT INTO srs_day_counts (user_id, date, new_shown, reviews_shown) VALUES (?, ?, ?, ?) "
+        "ON CONFLICT(user_id, date) DO UPDATE SET "
+        "new_shown = srs_day_counts.new_shown + excluded.new_shown, "
+        "reviews_shown = srs_day_counts.reviews_shown + excluded.reviews_shown",
+        (user_id, today, new, review),
+    )
+
+
+def select_study_cards(cards, db, user_id, new_limit=None):
+    """Anki-style daily queue: due learning cards first, then a capped number of reviews,
+    then a capped number of new cards. Introduced new-card ids stay stable for the day.
     """
     today = today_str()
+    settings = load_srs_settings(db, user_id)
+    if new_limit is not None:
+        settings = {**settings, "new_per_day": new_limit}
     row = query_one(db, "SELECT date, ids_json FROM new_card_intro_state WHERE user_id = ?", (user_id,))
     already_introduced = set(json.loads(row["ids_json"])) if row and row["date"] == today else set()
-
-    review_due = [c for c in cards if c["due"] and c["due"] != "0000-00-00" and c["due"] <= today]
-    new_cards = [c for c in cards if not c["due"] or c["due"] == "0000-00-00"]
-
-    still_introduced = [c for c in new_cards if c["external_id"] in already_introduced]
-    fresh_candidates = [c for c in new_cards if c["external_id"] not in already_introduced]
-    remaining_slots = max(0, new_limit - len(still_introduced))
-    newly_introduced = fresh_candidates[:remaining_slots]
-
-    updated_ids = already_introduced | {c["external_id"] for c in still_introduced + newly_introduced}
+    new_shown, reviews_shown = load_day_counts(db, user_id, today)
+    selected_ids, updated_intro, waiting_at, counts = srs.select_study_queue(
+        cards, settings, already_introduced, new_shown, reviews_shown
+    )
     db.execute(
         "INSERT INTO new_card_intro_state (user_id, date, ids_json) VALUES (?, ?, ?) "
         "ON CONFLICT(user_id) DO UPDATE SET date = excluded.date, ids_json = excluded.ids_json",
-        (user_id, today, json.dumps(list(updated_ids))),
+        (user_id, today, json.dumps(list(updated_intro))),
     )
-    return {c["external_id"] for c in review_due + still_introduced + newly_introduced}
+    return selected_ids, waiting_at, counts, settings
 
 
 def current_state(db, user_id):
@@ -684,11 +573,22 @@ def api_cards():
     db = get_db()
     user_id = session["user_id"]
     cards = cards_for_user(db, user_id)
-    due_today_ids = select_study_cards(cards, db, user_id)
+    due_today_ids, waiting_at, counts, settings = select_study_cards(cards, db, user_id)
     for card in cards:
         card["due_today"] = card["external_id"] in due_today_ids
+        card["queue"] = srs.infer_queue(card)
+        card["previews"] = srs.button_previews(card)
     topics = sorted({card["topic"] for card in cards})
-    return jsonify({"cards": cards, "topics": topics, "today": today_str()})
+    due_count = sum(1 for card in cards if card["due_today"])
+    return jsonify({
+        "cards": cards,
+        "topics": topics,
+        "today": today_str(),
+        "counts": counts,
+        "settings": settings,
+        "waiting_at": waiting_at,
+        "due_count": due_count,
+    })
 
 
 @app.route("/api/cards/pull-reviews", methods=["POST"])
@@ -748,21 +648,30 @@ def api_cards_sync():
         ease = float(card.get("ease", 2.5) or 2.5)
         reps = int(card.get("reps", 0) or 0)
         lapses = int(card.get("lapses", 0) or 0)
+        queue = int(card["queue"]) if card.get("queue") is not None else (srs.QUEUE_REVIEW if reps else srs.QUEUE_NEW)
+        due_at = str(card.get("due_at") or ("" if due == srs.NEW_SENTINEL else due))
+        learn_step = int(card.get("learn_step") or 0)
+        source = str(card.get("source") or "desktop")
 
         db.execute(
             "INSERT INTO synced_cards (user_id, external_id, topic, question, answer, options_json, "
-            "example, notes, due, interval, ease, reps, lapses) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+            "example, notes, due, interval, ease, reps, lapses, queue, due_at, learn_step, source) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(user_id, external_id) DO UPDATE SET "
             "topic = excluded.topic, question = excluded.question, answer = excluded.answer, "
             "options_json = excluded.options_json, example = excluded.example, notes = excluded.notes, "
             "due = excluded.due, interval = excluded.interval, ease = excluded.ease, reps = excluded.reps, "
-            "lapses = excluded.lapses",
-            (user_id, external_id, topic, question, answer, options_json, example, notes, due, interval, ease, reps, lapses),
+            "lapses = excluded.lapses, queue = excluded.queue, due_at = excluded.due_at, "
+            "learn_step = excluded.learn_step, source = excluded.source",
+            (user_id, external_id, topic, question, answer, options_json, example, notes, due, interval, ease, reps, lapses, queue, due_at, learn_step, source),
         )
 
-    # A card no longer in the desktop's deck (deleted there) drops out here too.
-    existing = query_all(db, "SELECT id, external_id FROM synced_cards WHERE user_id = ?", (user_id,))
+    # Desktop is authoritative only for cards it owns. Course/shared decks stay on the phone.
+    existing = query_all(db, "SELECT id, external_id, source FROM synced_cards WHERE user_id = ?", (user_id,))
     for row in existing:
+        source = row_get(row, "source", "desktop") or "desktop"
+        if source != "desktop":
+            continue
         if row["external_id"] not in incoming_ids:
             db.execute("DELETE FROM synced_cards WHERE id = ?", (row["id"],))
 
@@ -789,16 +698,19 @@ def api_import_shared_deck():
     for card in cards:
         db.execute(
             "INSERT INTO synced_cards (user_id, external_id, topic, question, answer, options_json, "
-            "example, notes, due, interval, ease, reps, lapses) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+            "example, notes, due, interval, ease, reps, lapses, queue, due_at, learn_step, source) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(user_id, external_id) DO UPDATE SET "
             "topic = excluded.topic, question = excluded.question, answer = excluded.answer, "
             "options_json = excluded.options_json, example = excluded.example, notes = excluded.notes, "
             "due = excluded.due, interval = excluded.interval, ease = excluded.ease, reps = excluded.reps, "
-            "lapses = excluded.lapses",
+            "lapses = excluded.lapses, queue = excluded.queue, due_at = excluded.due_at, "
+            "learn_step = excluded.learn_step, source = excluded.source",
             (
                 user_id, card["external_id"], card["topic"], card["question"], card["answer"],
                 json.dumps(card.get("options") or []), card.get("example", ""), card.get("notes", ""),
-                card["due"], card["interval"], card["ease"], card["reps"], card["lapses"],
+                card.get("due") or srs.NEW_SENTINEL, card.get("interval") or 0, card.get("ease") or srs.STARTING_EASE,
+                0, 0, srs.QUEUE_NEW, "", 0, "shared",
             ),
         )
     return jsonify({"card_count": len(cards), "label": label})
@@ -819,20 +731,54 @@ def api_card_review(card_id):
     if not row:
         return jsonify({"error": "not found"}), 404
 
-    updated = apply_review_result(
-        {"ease": row["ease"], "reps": row["reps"], "interval": row["interval"], "lapses": row["lapses"]}, confidence
-    )
+    before = card_row_to_dict(row)
+    before_queue = srs.infer_queue(before)
+    updated = srs.apply_review_result(before, confidence)
     db.execute(
-        "UPDATE synced_cards SET due = ?, interval = ?, ease = ?, reps = ?, lapses = ? WHERE id = ?",
-        (updated["due"], updated["interval"], updated["ease"], updated["reps"], updated["lapses"], card_id),
+        "UPDATE synced_cards SET due = ?, interval = ?, ease = ?, reps = ?, lapses = ?, "
+        "queue = ?, due_at = ?, learn_step = ? WHERE id = ?",
+        (
+            updated["due"], updated["interval"], updated["ease"], updated["reps"], updated["lapses"],
+            updated["queue"], updated["due_at"], updated["learn_step"], card_id,
+        ),
     )
+    if before_queue == srs.QUEUE_NEW:
+        bump_day_count(db, user_id, today_str(), new=1)
+    elif before_queue == srs.QUEUE_REVIEW:
+        bump_day_count(db, user_id, today_str(), review=1)
     db.execute(
         "INSERT INTO card_review_events (user_id, external_id, confidence, reviewed_at) VALUES (?, ?, ?, ?)",
         (user_id, row["external_id"], confidence, datetime.datetime.now().isoformat()),
     )
     result = card_row_to_dict(row)
-    result.update(due=updated["due"], interval=updated["interval"], ease=updated["ease"], reps=updated["reps"], lapses=updated["lapses"])
+    result.update(
+        due=updated["due"], interval=updated["interval"], ease=updated["ease"],
+        reps=updated["reps"], lapses=updated["lapses"], queue=updated["queue"],
+        due_at=updated["due_at"], learn_step=updated["learn_step"],
+        previews=srs.button_previews(updated),
+    )
     return jsonify(result)
+
+
+@app.route("/api/srs-settings", methods=["GET", "POST"])
+@login_required
+def api_srs_settings():
+    db = get_db()
+    user_id = session["user_id"]
+    if request.method == "GET":
+        settings = load_srs_settings(db, user_id)
+        new_shown, reviews_shown = load_day_counts(db, user_id, today_str())
+        return jsonify({**settings, "new_shown": new_shown, "reviews_shown": reviews_shown})
+    settings = srs.clamp_settings(request.get_json(silent=True) or {})
+    db.execute(
+        "INSERT INTO srs_settings (user_id, new_per_day, reviews_per_day, notify_enabled, notify_hour) "
+        "VALUES (?, ?, ?, ?, ?) "
+        "ON CONFLICT(user_id) DO UPDATE SET "
+        "new_per_day = excluded.new_per_day, reviews_per_day = excluded.reviews_per_day, "
+        "notify_enabled = excluded.notify_enabled, notify_hour = excluded.notify_hour",
+        (user_id, settings["new_per_day"], settings["reviews_per_day"], settings["notify_enabled"], settings["notify_hour"]),
+    )
+    return jsonify(settings)
 
 
 def format_book_size(size_bytes):
@@ -848,7 +794,7 @@ def books_page():
     rows = query_all(
         db,
         "SELECT id, title, filename, content_type, size_bytes FROM synced_books "
-        "WHERE user_id = ? ORDER BY title COLLATE NOCASE",
+        "WHERE user_id = ? ORDER BY LOWER(title)",
         (session["user_id"],),
     )
     books = [
@@ -871,7 +817,7 @@ def api_books():
     rows = query_all(
         db,
         "SELECT id, external_id, title, filename, content_type, size_bytes FROM synced_books "
-        "WHERE user_id = ? ORDER BY title COLLATE NOCASE",
+        "WHERE user_id = ? ORDER BY LOWER(title)",
         (session["user_id"],),
     )
     books = [
@@ -957,6 +903,7 @@ def book_file(book_id):
     return response
 
 
+register_learn_routes(app, get_db, login_required)
 init_db()
 
 if __name__ == "__main__":

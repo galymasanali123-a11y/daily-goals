@@ -1,9 +1,13 @@
-const CACHE_NAME = "daily-goals-v1";
+const CACHE_NAME = "daily-goals-v2";
 const APP_SHELL = [
   "/static/manifest.json",
   "/static/icons/icon-192.png",
   "/static/icons/icon-512.png",
   "/static/app.js",
+  "/static/app-ui.css",
+  "/static/flashcards.js",
+  "/static/lesson.js",
+  "/static/reader.js",
 ];
 
 self.addEventListener("install", (event) => {
@@ -47,5 +51,17 @@ self.addEventListener("fetch", (event) => {
         return response;
       })
       .catch(() => caches.match(event.request))
+  );
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
+      for (const client of clients) {
+        if (client.url.includes("/flashcards") && "focus" in client) return client.focus();
+      }
+      return self.clients.openWindow("/flashcards");
+    })
   );
 });

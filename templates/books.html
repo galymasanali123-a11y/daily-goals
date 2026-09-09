@@ -1,28 +1,27 @@
 {% extends "base.html" %}
-{% block subtitle %}Books synced from your desktop{% endblock %}
+{% block subtitle %}Книги{% endblock %}
 {% block content %}
+{% include "_nav.html" %}
 
-<div class="nav-tabs">
-  <a class="nav-tab" href="{{ url_for('index') }}">Goals</a>
-  <a class="nav-tab" href="{{ url_for('flashcards_page') }}">Flashcards</a>
-  <span class="nav-tab active">Books</span>
-</div>
+<p class="page-kicker">Library</p>
+<h2 class="page-title">Книги</h2>
+<p class="page-lead">Каждая книга открывается в ридере — отдельно от списка. В текстовых файлах можно красить маркером; в PDF — оставлять цветные заметки сбоку.</p>
 
 {% if not books %}
 <div class="card empty-state">
-  Nothing synced yet — open the desktop app, flag a book to sync, and send it to your phone.
+  Пока пусто — отметьте книгу в десктоп-приложении и синхронизируйте её сюда.
 </div>
 {% else %}
 <div class="card">
-  <h2>My books</h2>
   {% for book in books %}
-    <a class="book-row" href="{{ url_for('book_file', book_id=book.id) }}" target="_blank" rel="noopener"
-       {% if not book.inline %}download="{{ book.filename }}"{% endif %}>
-      <span class="book-title">{{ book.title }}</span>
-      <span class="book-meta">{{ book.size }}{{ '' if book.inline else ' · downloads to open' }}</span>
-    </a>
+    <div class="book-row" style="align-items:center;">
+      <a href="{{ url_for('book_reader', book_id=book.id) }}" style="flex:1; min-width:0; text-decoration:none; color:inherit;">
+        <span class="book-title">{{ book.title }}</span>
+        <div class="book-meta">{{ book.size }}</div>
+      </a>
+      <a class="ghost-link" href="{{ url_for('book_reader', book_id=book.id) }}" target="_blank" rel="noopener">↗</a>
+    </div>
   {% endfor %}
 </div>
 {% endif %}
-
 {% endblock %}

@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block subtitle %}{{ course.title }}{% endblock %}
+{% block content %}
+{% include "_nav.html" %}
+
+<div class="back-row">
+  <a class="ghost-link" href="{{ url_for('learn_page') }}">← Все курсы</a>
+  <a class="ghost-link" href="{{ url_for('course_page', course_slug=course.slug) }}" target="_blank" rel="noopener">Открыть отдельно ↗</a>
+</div>
+
+<p class="page-kicker">{{ course.category }}</p>
+<h2 class="page-title">{{ course.title }}</h2>
+<p class="page-lead">{{ course.blurb }}</p>
+
+<div class="card">
+  <div class="progress-line"><span style="width: {{ course.percent }}%; background: {{ course.accent }}"></span></div>
+  <div class="progress-meta">
+    <span>Весь курс: {{ course.done }}/{{ course.total }} уроков</span>
+    <span>{{ course.counts.words }} слов · {{ course.counts.exercises }} заданий</span>
+  </div>
+</div>
+
+{% for level in course.levels %}
+<div class="level-block">
+  <div class="level-head">
+    <div>
+      <h2>{{ level.title }}</h2>
+      <p class="page-lead" style="margin:6px 0 0">{{ level.subtitle }}</p>
+    </div>
+    <span class="progress-meta">{{ level.done }}/{{ level.total }}</span>
+  </div>
+  <div class="progress-line"><span style="width: {{ level.percent }}%; background: {{ course.accent }}"></span></div>
+  {% for lesson in level.lessons %}
+    <a class="lesson-row {% if lesson.completed %}done{% endif %}"
+       href="{{ url_for('lesson_page', course_slug=course.slug, level_slug=level.slug, lesson_slug=lesson.slug) }}">
+      <span class="lesson-index">{{ '✓' if lesson.completed else loop.index }}</span>
+      <span>
+        <strong>{{ lesson.title }}</strong>
+        <small>{{ lesson.minutes }} мин · {{ lesson.words }} слов · {{ lesson.exercises }} заданий — {{ lesson.summary }}</small>
+      </span>
+    </a>
+  {% endfor %}
+</div>
+{% endfor %}
+{% endblock %}

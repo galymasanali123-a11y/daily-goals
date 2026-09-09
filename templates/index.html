@@ -2,11 +2,7 @@
 {% block subtitle %}<span id="today-label">{{ state.today }}</span>{% endblock %}
 {% block content %}
 
-<div class="nav-tabs">
-  <span class="nav-tab active">Goals</span>
-  <a class="nav-tab" href="{{ url_for('flashcards_page') }}">Flashcards</a>
-  <a class="nav-tab" href="{{ url_for('books_page') }}">Books</a>
-</div>
+{% include "_nav.html" %}
 
 <div class="stat-row">
   <div class="stat-tile">
@@ -18,6 +14,12 @@
     <div class="label">Day streak</div>
   </div>
 </div>
+
+<a class="course-card" href="{{ url_for('learn_page') }}" style="margin-bottom:16px;">
+  <div class="badge" style="background:var(--accent)">A</div>
+  <h2>Учить язык или медицину</h2>
+  <p>English, Deutsch и Medicine — уроки, слова и задания. Прогресс видно сразу.</p>
+</a>
 
 <div class="card">
   <h2>Last 7 days</h2>

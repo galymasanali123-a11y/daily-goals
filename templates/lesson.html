@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% block subtitle %}{{ lesson.title }}{% endblock %}
+{% block content %}
+{% include "_nav.html" %}
+
+<div class="back-row">
+  <a class="ghost-link" href="{{ url_for('course_page', course_slug=course.slug) }}">← {{ course.title }} / {{ level.short }}</a>
+  <a class="ghost-link" href="{{ url_for('lesson_page', course_slug=course.slug, level_slug=level.slug, lesson_slug=lesson.slug) }}" target="_blank" rel="noopener">Открыть отдельно ↗</a>
+</div>
+
+<p class="page-kicker">{{ level.title }}</p>
+<h2 class="page-title">{{ lesson.title }}</h2>
+<p class="page-lead">{{ lesson.summary }} · около {{ lesson.minutes }} мин</p>
+
+<div class="lesson-layout">
+  <div class="card">
+    <h2>Грамматика</h2>
+    <div class="lesson-prose">{{ body_html }}</div>
+    <button type="button" class="primary" id="mark-grammar" {% if progress.grammar_done %}disabled{% endif %}>
+      {{ 'Прочитано' if progress.grammar_done else 'Отметить как прочитанное' }}
+    </button>
+  </div>
+
+  <div>
+    <div class="card">
+      <h2>Прогресс урока</h2>
+      <div class="checklist">
+        <div class="check-item {% if progress.grammar_done %}done{% endif %}">Грамматика <span>{{ 'готово' if progress.grammar_done else 'ещё нет' }}</span></div>
+        <div class="check-item {% if progress.cards_added %}done{% endif %}">Слова в колоде <span>{{ 'готово' if progress.cards_added else 'ещё нет' }}</span></div>
+        <div class="check-item {% if progress.exercises_total %}done{% endif %}">Задания <span>{{ progress.exercises_correct }}/{{ lesson.exercises|length }}</span></div>
+      </div>
+      {% if finished %}
+        <p class="sync-note">Урок закрыт. Можно идти дальше.</p>
+      {% endif %}
+    </div>
+
+    <div class="card">
+      <h2>Слова ({{ lesson.vocab|length }})</h2>
+      <div class="vocab-list">
+        {% for word in lesson.vocab %}
+          <div class="vocab-item">
+            <span class="front">{{ word.front }}</span>
+            <span class="back">{{ word.back }}</span>
+            {% if word.example %}<span class="ex">{{ word.example }}</span>{% endif %}
+          </div>
+        {% endfor %}
+      </div>
+      <div style="display:flex; gap:8px; margin-top:12px; flex-wrap:wrap;">
+        <button type="button" class="primary" id="add-cards">Добавить в карточки</button>
+        <a class="ghost-link" href="{{ url_for('flashcards_page') }}?topic={{ (course.title ~ ' / ' ~ level.short ~ ' / ' ~ lesson.title)|urlencode }}">Учить →</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card" id="practice-card">
+  <h2>Задания</h2>
+  <form id="exercise-form">
+    {% for exercise in lesson.exercises %}
+      <div class="exercise" data-index="{{ loop.index0 }}">
+        <div class="prompt">{{ loop.index }}. {{ exercise.prompt }}</div>
+        {% if exercise.type == 'fill' %}
+          <input type="text" name="{{ loop.index0 }}" value="{{ progress.answers.get(loop.index0|string, '') }}" autocomplete="off">
+        {% else %}
+          <div class="choices">
+            {% for option in exercise.options %}
+              <label>
+                <input type="radio" name="{{ loop.index0 }}" value="{{ option }}"
+                       {% if progress.answers.get(loop.index0|string) == option %}checked{% endif %}>
+                {{ option }}
+              </label>
+            {% endfor %}
+          </div>
+        {% endif %}
+        <div class="explain" hidden></div>
+      </div>
+    {% endfor %}
+    <button type="submit" class="primary">Проверить</button>
+  </form>
+</div>
+
+<div class="lesson-nav">
+  {% if neighbors.prev %}
+    <a class="ghost-link" href="{{ url_for('lesson_page', course_slug=course.slug, level_slug=level.slug, lesson_slug=neighbors.prev.slug) }}">← {{ neighbors.prev.title }}</a>
+  {% else %}
+    <span></span>
+  {% endif %}
+  {% if neighbors.next %}
+    <a class="ghost-link" href="{{ url_for('lesson_page', course_slug=course.slug, level_slug=level.slug, lesson_slug=neighbors.next.slug) }}">{{ neighbors.next.title }} →</a>
+  {% endif %}
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+  window.LESSON = {
+    grammarUrl: {{ url_for('api_lesson_grammar', course_slug=course.slug, level_slug=level.slug, lesson_slug=lesson.slug)|tojson }},
+    cardsUrl: {{ url_for('api_lesson_cards', course_slug=course.slug, level_slug=level.slug, lesson_slug=lesson.slug)|tojson }},
+    exercisesUrl: {{ url_for('api_lesson_exercises', course_slug=course.slug, level_slug=level.slug, lesson_slug=lesson.slug)|tojson }}
+  };
+</script>
+<script src="{{ url_for('static', filename='lesson.js') }}"></script>
+{% endblock %}

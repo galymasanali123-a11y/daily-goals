@@ -17,14 +17,19 @@
   const revealBtn = document.getElementById("reveal-btn");
   const studyActions = document.getElementById("study-actions");
   const toast = document.getElementById("toast");
+  const countsBox = document.getElementById("anki-counts");
+  const srsForm = document.getElementById("srs-form");
+  const enableNotify = document.getElementById("enable-notify");
 
+  const params = new URLSearchParams(window.location.search);
   let allCards = [];
-  let today = "";
-  let selectedTopic = "All";
+  let selectedTopic = params.get("topic") || "All";
   let queue = [];
   let queueTotal = 0;
   let revealed = false;
   let topicFilterExpanded = false;
+  let settings = { new_per_day: 20, reviews_per_day: 200, notify_enabled: 1, notify_hour: 9 };
+  let wakeTimer = null;
 
   function showToast(message) {
     toast.textContent = message;
@@ -57,6 +62,9 @@
 
   function renderTopicFilter(topics) {
     const chips = ["All", ...topics];
+    if (selectedTopic !== "All" && !topics.includes(selectedTopic)) {
+      chips.push(selectedTopic);
+    }
     topicFilter.innerHTML = chips
       .map((topic) => `<span class="topic-chip ${topic === selectedTopic ? "active" : ""}" data-topic="${escapeHTML(topic)}">${escapeHTML(topic)}</span>`)
       .join("");
@@ -64,6 +72,7 @@
   }
 
   function updateTopicToggleLabel() {
+    if (!topicToggle) return;
     const arrow = topicFilterExpanded ? "▴" : "▾";
     topicToggle.textContent = `📂 Topic: ${selectedTopic} ${arrow}`;
   }
@@ -74,9 +83,11 @@
     updateTopicToggleLabel();
   }
 
-  topicToggle.addEventListener("click", () => {
-    setTopicFilterExpanded(!topicFilterExpanded);
-  });
+  if (topicToggle) {
+    topicToggle.addEventListener("click", () => {
+      setTopicFilterExpanded(!topicFilterExpanded);
+    });
+  }
 
   topicFilter.addEventListener("click", (event) => {
     const chip = event.target.closest(".topic-chip");
@@ -88,10 +99,65 @@
     setTopicFilterExpanded(false);
   });
 
+  function renderCounts(counts) {
+    if (!countsBox || !counts) return;
+    countsBox.hidden = false;
+    document.getElementById("count-new").textContent = `${counts.new || 0} new`;
+    document.getElementById("count-learn").textContent = `${counts.learning || 0} learn`;
+    document.getElementById("count-review").textContent = `${counts.review || 0} review`;
+  }
+
+  function applyPreviews(card) {
+    const previews = (card && card.previews) || {};
+    studyActions.querySelectorAll("[data-preview]").forEach((el) => {
+      el.textContent = previews[el.dataset.preview] || "";
+    });
+  }
+
+  function fillSettings(data) {
+    if (!data) return;
+    settings = { ...settings, ...data };
+    const newInput = document.getElementById("new-per-day");
+    const reviewInput = document.getElementById("reviews-per-day");
+    const hourInput = document.getElementById("notify-hour");
+    const notifySelect = document.getElementById("notify-enabled");
+    if (newInput) newInput.value = settings.new_per_day;
+    if (reviewInput) reviewInput.value = settings.reviews_per_day;
+    if (hourInput) hourInput.value = settings.notify_hour;
+    if (notifySelect) notifySelect.value = String(settings.notify_enabled);
+  }
+
+  function maybeNotify(dueCount) {
+    if (!dueCount || !settings.notify_enabled) return;
+    const today = new Date().toISOString().slice(0, 10);
+    try {
+      if (localStorage.getItem("card-nudge-date") === today) return;
+    } catch (error) {}
+    const hour = new Date().getHours();
+    if (hour < Number(settings.notify_hour || 0)) return;
+    if (!("Notification" in window) || Notification.permission !== "granted") return;
+    try {
+      new Notification("Карточки на сегодня", {
+        body: `${dueCount} карточек ждут повторения.`,
+        icon: "/static/icons/icon-192.png",
+      });
+      localStorage.setItem("card-nudge-date", today);
+    } catch (error) {}
+  }
+
+  function scheduleWake(waitingAt) {
+    clearTimeout(wakeTimer);
+    if (!waitingAt || !waitingAt.length) return;
+    const soonest = waitingAt
+      .map((value) => new Date(value).getTime())
+      .filter((value) => !Number.isNaN(value))
+      .sort((a, b) => a - b)[0];
+    if (!soonest) return;
+    const delay = Math.max(1000, soonest - Date.now() + 400);
+    wakeTimer = setTimeout(() => load(), Math.min(delay, 10 * 60 * 1000));
+  }
+
   function buildQueue() {
-    // due_today is server-computed: review-due cards are always included, but never-reviewed
-    // cards are capped per day (see select_study_cards in app.py) so a freshly-synced 900-card
-    // deck doesn't dump every card on you the moment it lands on your phone.
     const dueCards = allCards.filter((card) => card.due_today);
     queue = selectedTopic === "All" ? dueCards : dueCards.filter((card) => card.topic === selectedTopic);
     queueTotal = queue.length;
@@ -124,13 +190,12 @@
     studyArea.style.display = "";
 
     const card = queue[0];
-    studyProgress.textContent = `${queueTotal - queue.length + 1} of ${queueTotal} due`;
+    studyProgress.textContent = `${queueTotal - queue.length + 1} of ${queueTotal}`;
     studyTopic.textContent = card.topic;
     studyQuestion.textContent = card.question;
     studyAnswer.textContent = card.answer;
-    if (card.example) {
-      studyExample.textContent = card.example;
-    }
+    studyExample.textContent = card.example || "";
+    applyPreviews(card);
   }
 
   revealBtn.addEventListener("click", () => {
@@ -150,14 +215,25 @@
       showToast(error.message);
       return;
     }
-    queue.shift();
-    showNextCard();
+    await load();
   }
 
   studyActions.addEventListener("click", (event) => {
     const button = event.target.closest("button[data-confidence]");
     if (!button) return;
     submitReview(parseInt(button.dataset.confidence, 10));
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (!revealed) {
+      if (event.key === " " || event.key === "Enter") {
+        event.preventDefault();
+        revealBtn.click();
+      }
+      return;
+    }
+    const map = { 1: 1, 2: 2, 3: 3, 4: 4 };
+    if (map[event.key]) submitReview(map[event.key]);
   });
 
   importDeckForm.addEventListener("submit", async (event) => {
@@ -174,13 +250,49 @@
     }
   });
 
+  if (srsForm) {
+    srsForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      try {
+        const saved = await api("/api/srs-settings", {
+          method: "POST",
+          body: JSON.stringify({
+            new_per_day: document.getElementById("new-per-day").value,
+            reviews_per_day: document.getElementById("reviews-per-day").value,
+            notify_hour: document.getElementById("notify-hour").value,
+            notify_enabled: document.getElementById("notify-enabled").value,
+          }),
+        });
+        fillSettings(saved);
+        showToast("Лимиты сохранены.");
+        await load();
+      } catch (error) {
+        showToast(error.message);
+      }
+    });
+  }
+
+  if (enableNotify) {
+    enableNotify.addEventListener("click", async () => {
+      if (!("Notification" in window)) {
+        showToast("Этот браузер не умеет уведомления.");
+        return;
+      }
+      const permission = await Notification.requestPermission();
+      showToast(permission === "granted" ? "Напоминания разрешены." : "Разрешение не выдано.");
+    });
+  }
+
   async function load() {
     try {
       const data = await api("/api/cards");
       allCards = data.cards;
-      today = data.today;
+      fillSettings(data.settings);
+      renderCounts(data.counts);
       renderTopicFilter(data.topics);
       buildQueue();
+      scheduleWake(data.waiting_at);
+      maybeNotify(data.due_count);
     } catch (error) {
       showToast(error.message);
     }

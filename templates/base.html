@@ -638,8 +638,9 @@
     cursor: pointer;
   }
 </style>
+<link rel="stylesheet" href="{{ url_for('static', filename='app-ui.css') }}">
 </head>
-<body>
+<body class="{% if is_auth_page %}auth-page{% endif %} {% if wide_layout %}wide-layout{% endif %}">
 <header class="top">
   <button type="button" class="theme-toggle-btn" id="theme-toggle" aria-label="Toggle dark mode">🌙</button>
   <h1>Daily Goals</h1>
@@ -648,6 +649,14 @@
 <main>
   {% block content %}{% endblock %}
 </main>
+{% if not is_auth_page %}
+<nav class="bottom-nav" aria-label="Main">
+  <a href="{{ url_for('index') }}" class="{{ 'active' if active_nav == 'goals' else '' }}"><span>☑</span>Goals</a>
+  <a href="{{ url_for('learn_page') }}" class="{{ 'active' if active_nav == 'learn' else '' }}"><span>A</span>Learn</a>
+  <a href="{{ url_for('flashcards_page') }}" class="{{ 'active' if active_nav == 'cards' else '' }}"><span>▣</span>Cards</a>
+  <a href="{{ url_for('books_page') }}" class="{{ 'active' if active_nav == 'books' else '' }}"><span>▤</span>Books</a>
+</nav>
+{% endif %}
 <div id="toast" class="toast"></div>
 <script>
   if ("serviceWorker" in navigator) {

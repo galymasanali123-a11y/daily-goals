@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block subtitle %}{{ book.title }}{% endblock %}
+{% block content %}
+<div class="back-row">
+  <a class="ghost-link" href="{{ url_for('books_page') }}">← Библиотека</a>
+  <div>
+    <a class="ghost-link" href="{{ url_for('book_reader', book_id=book.id) }}" target="_blank" rel="noopener">Открыть отдельно ↗</a>
+    <a class="ghost-link" href="{{ book.file_url }}" target="_blank" rel="noopener">Файл ↗</a>
+  </div>
+</div>
+
+<p class="page-kicker">Reader</p>
+<h2 class="page-title">{{ book.title }}</h2>
+
+<div class="reader-frame">
+  <div>
+    {% if book.is_text %}
+      <div class="book-toolbar" id="marker-toolbar">
+        <span class="sync-note" style="margin:0">Выделите текст и нажмите цвет — как маркер на полях.</span>
+        <button type="button" class="swatch yellow active" data-color="yellow" title="Жёлтый"></button>
+        <button type="button" class="swatch green" data-color="green" title="Зелёный"></button>
+        <button type="button" class="swatch pink" data-color="pink" title="Розовый"></button>
+        <button type="button" class="swatch blue" data-color="blue" title="Голубой"></button>
+      </div>
+      <article class="reader-page" id="reader-text">{{ text_body }}</article>
+    {% elif book.is_pdf %}
+      <p class="sync-note">PDF открыт в этой странице. Заметки-маркеры — справа: добавьте цвет и короткий комментарий к месту в тексте.</p>
+      <iframe class="pdf-frame" src="{{ book.file_url }}" title="{{ book.title }}"></iframe>
+    {% else %}
+      <div class="card empty-state">Этот файл лучше скачать и открыть в его приложении.</div>
+      <p><a class="ghost-link" href="{{ book.file_url }}" download="{{ book.filename }}">Скачать {{ book.filename }}</a></p>
+    {% endif %}
+  </div>
+  <aside class="card">
+    <h2>Маркеры</h2>
+    {% if not book.is_text %}
+      <form id="note-form" class="add-goal" style="flex-direction:column; align-items:stretch;">
+        <div class="book-toolbar">
+          <button type="button" class="swatch yellow active" data-color="yellow"></button>
+          <button type="button" class="swatch green" data-color="green"></button>
+          <button type="button" class="swatch pink" data-color="pink"></button>
+          <button type="button" class="swatch blue" data-color="blue"></button>
+        </div>
+        <input type="text" id="note-snippet" placeholder="Страница / цитата">
+        <input type="text" id="note-text" placeholder="Заметка">
+        <button type="submit" class="primary">Добавить маркер</button>
+      </form>
+    {% endif %}
+    <div id="marker-list" class="marker-list"></div>
+  </aside>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+  window.READER = {
+    bookId: {{ book.id }},
+    isText: {{ 'true' if book.is_text else 'false' }},
+    highlights: {{ highlights | tojson }}
+  };
+</script>
+<script src="{{ url_for('static', filename='reader.js') }}"></script>
+{% endblock %}

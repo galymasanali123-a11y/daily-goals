@@ -1,30 +1,31 @@
 {% extends "base.html" %}
-{% block subtitle %}Flashcards synced from your desktop{% endblock %}
+{% block subtitle %}Карточки · как в Anki{% endblock %}
 {% block content %}
+{% include "_nav.html" %}
 
-<div class="nav-tabs">
-  <a class="nav-tab" href="{{ url_for('index') }}">Goals</a>
-  <span class="nav-tab active">Flashcards</span>
-  <a class="nav-tab" href="{{ url_for('books_page') }}">Books</a>
+<div id="anki-counts" class="anki-counts" hidden>
+  <span class="new" id="count-new">0 new</span>
+  <span class="learn" id="count-learn">0 learn</span>
+  <span class="review" id="count-review">0 review</span>
 </div>
 
 <button type="button" class="topic-toggle" id="topic-toggle">📂 Topic: All ▾</button>
 <div id="topic-filter" class="topic-filter" style="display:none;"></div>
 
 <div id="empty-cards" class="card empty-state" style="display:none;">
-  Nothing synced yet — open the desktop app and sync your flashcards to your phone.
+  Пока пусто. Откройте Learn, добавьте слова из урока — или импортируйте колоду кодом.
 </div>
 
 <div id="import-deck-card" class="card" style="display:none;">
-  <h2>Got a share code?</h2>
+  <h2>Код колоды</h2>
   <form id="import-deck-form" class="import-deck-form">
-    <input type="text" id="import-deck-code" placeholder="e.g. GOETHE-A1" autocapitalize="characters" autocomplete="off">
+    <input type="text" id="import-deck-code" placeholder="например GOETHE-A1" autocapitalize="characters" autocomplete="off">
     <button type="submit" class="primary">Import</button>
   </form>
 </div>
 
 <div id="all-caught-up" class="card empty-state" style="display:none;">
-  Nothing due right now in this subject. Nice work — check back later.
+  На сегодня очередь пуста. Learning-карточки с коротким интервалом вернутся сами через минуту.
 </div>
 
 <div id="study-area" style="display:none;">
@@ -35,15 +36,42 @@
     <div class="study-answer" id="study-answer" style="display:none;"></div>
     <div class="study-example" id="study-example" style="display:none;"></div>
   </div>
-  <button class="btn-reveal" id="reveal-btn">Show answer</button>
+  <button class="btn-reveal" id="reveal-btn">Показать ответ</button>
   <div class="study-actions" id="study-actions" style="display:none;">
-    <button class="btn-again" data-confidence="1">Again</button>
-    <button class="btn-hard" data-confidence="2">Hard</button>
-    <button class="btn-good" data-confidence="3">Good</button>
-    <button class="btn-easy" data-confidence="4">Easy</button>
+    <button class="btn-again" data-confidence="1">Again<span class="interval" data-preview="1"></span></button>
+    <button class="btn-hard" data-confidence="2">Hard<span class="interval" data-preview="2"></span></button>
+    <button class="btn-good" data-confidence="3">Good<span class="interval" data-preview="3"></span></button>
+    <button class="btn-easy" data-confidence="4">Easy<span class="interval" data-preview="4"></span></button>
   </div>
 </div>
 
+<div class="card" id="srs-settings-card">
+  <h2>Лимиты и напоминание</h2>
+  <p class="sync-note">Как в Anki: новые карточки в день отдельно от повторений. Again возвращает карточку через 1 минуту, не на завтра.</p>
+  <form id="srs-form" class="settings-grid">
+    <div>
+      <label for="new-per-day">Новых в день</label>
+      <input type="number" id="new-per-day" min="0" max="200" value="20">
+    </div>
+    <div>
+      <label for="reviews-per-day">Повторений в день</label>
+      <input type="number" id="reviews-per-day" min="0" max="9999" value="200">
+    </div>
+    <div>
+      <label for="notify-hour">Напоминание (час)</label>
+      <input type="number" id="notify-hour" min="0" max="23" value="9">
+    </div>
+    <div>
+      <label for="notify-enabled">Ежедневное напоминание</label>
+      <select id="notify-enabled">
+        <option value="1">Включено</option>
+        <option value="0">Выключено</option>
+      </select>
+    </div>
+    <button type="submit" class="primary" style="grid-column: 1 / -1;">Сохранить</button>
+  </form>
+  <button type="button" class="ghost-link" id="enable-notify" style="margin-top:10px; background:none; border:none; cursor:pointer;">Разрешить уведомления в браузере</button>
+</div>
 {% endblock %}
 {% block scripts %}
 <script src="{{ url_for('static', filename='flashcards.js') }}"></script>

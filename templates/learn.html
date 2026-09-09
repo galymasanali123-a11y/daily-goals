@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block subtitle %}Курсы: языки и медицина{% endblock %}
+{% block content %}
+{% include "_nav.html" %}
+
+<p class="page-kicker">Learn</p>
+<h2 class="page-title">Выберите предмет</h2>
+<p class="page-lead">Нажмите на блок — откроются уровни и уроки. В каждом уроке грамматика простыми словами, слова на карточки и задания. Прогресс считается по всему курсу.</p>
+
+<div class="course-grid">
+  {% for course in courses %}
+    <a class="course-card" href="{{ url_for('course_page', course_slug=course.slug) }}" style="--accent: {{ course.accent }}">
+      <div class="badge" style="background: {{ course.accent }}">{{ course.icon }}</div>
+      <h2>{{ course.title }}</h2>
+      <p>{{ course.subtitle }}</p>
+      <div class="progress-line"><span style="width: {{ course.percent }}%; background: {{ course.accent }}"></span></div>
+      <div class="progress-meta">
+        <span>{{ course.done }}/{{ course.total }} уроков</span>
+        <span>{{ course.percent }}%</span>
+      </div>
+    </a>
+  {% endfor %}
+</div>
+{% endblock %}
