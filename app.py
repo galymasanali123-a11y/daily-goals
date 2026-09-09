@@ -18,7 +18,9 @@ from flask import Flask, Response, abort, g, jsonify, redirect, render_template,
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from db import INTEGRITY_ERRORS, connect_db, init_db, query_all, query_one
+from i18n import COOKIE, catalog_for, detect_lang, normalize_lang, parse_accept_language, t
 from learn_routes import register_learn_routes
+from prefs import load_user_lang, save_user_lang
 import srs
 
 SECRET_KEY = os.environ.get("SECRET_KEY", "dev-secret-change-in-production")
@@ -37,7 +39,9 @@ app.secret_key = SECRET_KEY
 @app.context_processor
 def inject_layout():
     path = request.path
-    if path.startswith("/learn"):
+    if path.startswith("/settings"):
+        nav = "settings"
+    elif path.startswith("/learn"):
         nav = "learn"
     elif path.startswith("/flashcards"):
         nav = "cards"
@@ -47,10 +51,14 @@ def inject_layout():
         nav = ""
     else:
         nav = "goals"
+    lang = getattr(g, "lang", None) or "en"
     return {
         "active_nav": nav,
         "is_auth_page": path in {"/login", "/register"},
         "wide_layout": path.startswith("/learn") or (path.startswith("/books/") and "/file" not in path),
+        "t": t,
+        "lang": lang,
+        "i18n_catalog": catalog_for(lang),
     }
 # Sessions are marked permanent on login/register (session.permanent = True) -- without this,
 # Flask's default permanent-session lifetime is only 31 days, which reads as "randomly signed
@@ -80,12 +88,37 @@ def close_db(exception=None):
         db.close()
 
 
+@app.before_request
+def set_language():
+    cookie = request.cookies.get(COOKIE)
+    stored = None
+    if not normalize_lang(cookie) and session.get("user_id") and not request.path.startswith("/static"):
+        try:
+            stored = load_user_lang(get_db(), session["user_id"])
+        except Exception:
+            stored = None
+    accept = parse_accept_language(request.headers.get("Accept-Language"))
+    g.lang = detect_lang(cookie, stored, accept)
+
+
+def _set_lang_cookie(response, lang):
+    response.set_cookie(
+        COOKIE,
+        lang,
+        max_age=365 * 24 * 60 * 60,
+        samesite="Lax",
+        path="/",
+        secure=bool(request.is_secure),
+    )
+    return response
+
+
 def login_required(view):
     @wraps(view)
     def wrapped(*args, **kwargs):
         if not session.get("user_id"):
             if request.path.startswith("/api/"):
-                return jsonify({"error": "not authenticated"}), 401
+                return jsonify({"error": t("not_authenticated")}), 401
             return redirect(url_for("login"))
         return view(*args, **kwargs)
     return wrapped
@@ -100,18 +133,18 @@ def register():
         password = request.form.get("password", "")
         confirm = request.form.get("confirm", "")
         if not username or not email or not password:
-            error = "Username, email, and password are all required."
+            error = t("err_all_required")
         elif "@" not in email or "." not in email.split("@")[-1]:
-            error = "Enter a valid email address."
+            error = t("err_email")
         elif password != confirm:
-            error = "Passwords don't match."
+            error = t("err_password_match")
         elif len(password) < 4:
-            error = "Password must be at least 4 characters."
+            error = t("err_password_short")
         else:
             db = get_db()
             existing = query_one(db, "SELECT id FROM users WHERE LOWER(username) = LOWER(?)", (username,))
             if existing:
-                error = "That username is already taken."
+                error = t("err_username_taken")
             else:
                 try:
                     created = query_one(
@@ -120,7 +153,7 @@ def register():
                         (username, email, generate_password_hash(password)),
                     )
                 except INTEGRITY_ERRORS:
-                    error = "That username is already taken."
+                    error = t("err_username_taken")
                 else:
                     session["user_id"] = created["id"]
                     session["username"] = username
@@ -142,7 +175,7 @@ def login():
             session["username"] = user["username"]
             session.permanent = True
             return redirect(url_for("index"))
-        error = "Wrong username or password."
+        error = t("err_bad_login")
     return render_template("login.html", error=error)
 
 
@@ -150,6 +183,20 @@ def login():
 def logout():
     session.clear()
     return redirect(url_for("login"))
+
+
+@app.route("/settings", methods=["GET", "POST"])
+def settings_page():
+    if request.method == "POST":
+        lang = normalize_lang(request.form.get("lang")) or "en"
+        if session.get("user_id"):
+            try:
+                save_user_lang(get_db(), session["user_id"], lang)
+            except Exception:
+                pass
+        g.lang = lang
+        return _set_lang_cookie(redirect(url_for("settings_page")), lang)
+    return render_template("settings.html")
 
 
 def today_str():
@@ -427,7 +474,7 @@ def api_toggle(goal_id):
     db = get_db()
     user_id = session["user_id"]
     if not owned_goal(db, user_id, goal_id):
-        return jsonify({"error": "not found"}), 404
+        return jsonify({"error": t("err_not_found")}), 404
     today = today_str()
     row = query_one(db, "SELECT done FROM completions WHERE goal_id = ? AND date = ?", (goal_id, today))
     new_done = 0 if row and row["done"] else 1
@@ -445,7 +492,7 @@ def api_add_goal():
     payload = request.get_json(silent=True) or {}
     text = (payload.get("text") or "").strip()
     if not text:
-        return jsonify({"error": "text is required"}), 400
+        return jsonify({"error": t("err_text_required")}), 400
     db = get_db()
     user_id = session["user_id"]
     max_order = query_one(db, "SELECT COALESCE(MAX(sort_order), -1) AS n FROM goals WHERE user_id = ?", (user_id,))["n"]
@@ -459,11 +506,11 @@ def api_edit_goal(goal_id):
     payload = request.get_json(silent=True) or {}
     text = (payload.get("text") or "").strip()
     if not text:
-        return jsonify({"error": "text is required"}), 400
+        return jsonify({"error": t("err_text_required")}), 400
     db = get_db()
     user_id = session["user_id"]
     if not owned_goal(db, user_id, goal_id):
-        return jsonify({"error": "not found"}), 404
+        return jsonify({"error": t("err_not_found")}), 404
     db.execute("UPDATE goals SET text = ? WHERE id = ?", (text, goal_id))
     return jsonify(current_state(db, user_id))
 
@@ -474,7 +521,7 @@ def api_delete_goal(goal_id):
     db = get_db()
     user_id = session["user_id"]
     if not owned_goal(db, user_id, goal_id):
-        return jsonify({"error": "not found"}), 404
+        return jsonify({"error": t("err_not_found")}), 404
     db.execute("DELETE FROM goals WHERE id = ?", (goal_id,))
     db.execute("DELETE FROM completions WHERE goal_id = ?", (goal_id,))
     return jsonify(current_state(db, user_id))
@@ -488,7 +535,7 @@ def api_move_goal(goal_id):
     db = get_db()
     user_id = session["user_id"]
     if not owned_goal(db, user_id, goal_id):
-        return jsonify({"error": "not found"}), 404
+        return jsonify({"error": t("err_not_found")}), 404
 
     goals = query_all(db, "SELECT id, sort_order FROM goals WHERE user_id = ? ORDER BY sort_order", (user_id,))
     ids = [goal["id"] for goal in goals]
@@ -555,7 +602,7 @@ def api_toggle_synced_task(task_id):
     user_id = session["user_id"]
     row = query_one(db, "SELECT done FROM synced_tasks WHERE id = ? AND user_id = ?", (task_id, user_id))
     if not row:
-        return jsonify({"error": "not found"}), 404
+        return jsonify({"error": t("err_not_found")}), 404
     new_done = 0 if row["done"] else 1
     db.execute("UPDATE synced_tasks SET done = ? WHERE id = ?", (new_done, task_id))
     return jsonify(current_state(db, user_id))
@@ -689,7 +736,7 @@ def api_import_shared_deck():
     code = str(payload.get("code", "")).strip().upper()
     entry = SHARED_DECKS.get(code)
     if not entry:
-        return jsonify({"error": "That share code doesn't match a shared deck."}), 404
+        return jsonify({"error": t("err_share_code")}), 404
     filename, label = entry
     cards = json.loads((SHARED_DECKS_DIR / filename).read_text(encoding="utf-8"))
 
@@ -729,7 +776,7 @@ def api_card_review(card_id):
     user_id = session["user_id"]
     row = query_one(db, "SELECT * FROM synced_cards WHERE id = ? AND user_id = ?", (card_id, user_id))
     if not row:
-        return jsonify({"error": "not found"}), 404
+        return jsonify({"error": t("err_not_found")}), 404
 
     before = card_row_to_dict(row)
     before_queue = srs.infer_queue(before)

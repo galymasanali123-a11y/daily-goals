@@ -24,10 +24,10 @@
     });
     if (response.status === 401) {
       window.location.href = "/login";
-      throw new Error("not authenticated");
+      throw new Error(t("not_authenticated"));
     }
     const body = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(body.error || "Something went wrong.");
+    if (!response.ok) throw new Error(body.error || t("something_wrong"));
     return body;
   }
 
@@ -48,7 +48,7 @@
   function renderList() {
     if (!list) return;
     if (!highlights.length) {
-      list.innerHTML = '<p class="empty-state">Пока нет маркеров.</p>';
+      list.innerHTML = `<p class="empty-state">${t("no_markers")}</p>`;
       return;
     }
     list.innerHTML = highlights

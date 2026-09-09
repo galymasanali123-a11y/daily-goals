@@ -486,6 +486,42 @@ mark[data-color="blue"] { background: var(--blue); }
 
 button.primary:disabled { opacity: 0.55; cursor: default; }
 
+header.top .settings-link {
+  right: 56px;
+  text-decoration: none;
+  color: #fff;
+}
+
+.lang-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.lang-choice {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 14px 12px;
+  border-radius: 12px;
+  border: 1.5px solid var(--input-border);
+  background: var(--input-bg);
+  color: var(--text-primary);
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+}
+.lang-choice strong { font-size: 1rem; }
+.lang-choice span {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+.lang-choice:hover { border-color: var(--accent); }
+.lang-choice.active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.18);
+}
+
 @media (max-width: 719px) {
   body:not(.auth-page) main {
     padding-bottom: calc(96px + env(safe-area-inset-bottom));

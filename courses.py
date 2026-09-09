@@ -2,7 +2,9 @@
 
 from markupsafe import Markup, escape
 
+from content_i18n import course_field, lesson_field, level_field
 from curriculum import BY_SLUG, course_counts
+from i18n import current_lang, t
 
 
 def lesson_key(course_slug, lesson_slug):
@@ -44,7 +46,9 @@ def lesson_complete(lesson, progress):
     return grammar and total >= len(exercises) and correct == len(exercises)
 
 
-def course_payload(course, progress):
+def course_payload(course, progress, lang=None):
+    lang = lang or current_lang()
+    slug = course["slug"]
     counts = course_counts(course)
     levels = []
     done_lessons = 0
@@ -62,9 +66,9 @@ def course_payload(course, progress):
             lessons.append(
                 {
                     "slug": lesson["slug"],
-                    "title": lesson["title"],
+                    "title": lesson_field(slug, lesson["slug"], "title", lesson["title"], lang),
                     "minutes": lesson["minutes"],
-                    "summary": lesson["summary"],
+                    "summary": lesson_field(slug, lesson["slug"], "summary", lesson["summary"], lang),
                     "words": len(lesson.get("vocab") or []),
                     "exercises": len(lesson.get("exercises") or []),
                     "progress": item,
@@ -76,8 +80,8 @@ def course_payload(course, progress):
             {
                 "slug": level["slug"],
                 "short": level["short"],
-                "title": level["title"],
-                "subtitle": level["subtitle"],
+                "title": level_field(slug, level["slug"], "title", level["title"], lang),
+                "subtitle": level_field(slug, level["slug"], "subtitle", level["subtitle"], lang),
                 "lessons": lessons,
                 "done": level_done,
                 "total": len(level["lessons"]),
@@ -85,15 +89,16 @@ def course_payload(course, progress):
             }
         )
     percent = round(100 * done_lessons / total_lessons) if total_lessons else 0
+    category = course["category"]
     return {
         "slug": course["slug"],
-        "title": course["title"],
+        "title": course_field(slug, "title", course["title"], lang),
         "short": course["short"],
-        "subtitle": course["subtitle"],
-        "category": course["category"],
+        "subtitle": course_field(slug, "subtitle", course["subtitle"], lang),
+        "category": t("category_medicine") if category == "medicine" else t("category_language"),
         "accent": course["accent"],
         "icon": course["icon"],
-        "blurb": course["blurb"],
+        "blurb": course_field(slug, "blurb", course["blurb"], lang),
         "counts": counts,
         "levels": levels,
         "done": done_lessons,
@@ -102,8 +107,8 @@ def course_payload(course, progress):
     }
 
 
-def catalog_payload(progress):
-    return [course_payload(course, progress) for course in BY_SLUG.values()]
+def catalog_payload(progress, lang=None):
+    return [course_payload(course, progress, lang) for course in BY_SLUG.values()]
 
 
 def _p(text):

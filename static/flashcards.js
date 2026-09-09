@@ -45,11 +45,11 @@
     });
     if (response.status === 401) {
       window.location.href = "/login";
-      throw new Error("not authenticated");
+      throw new Error(t("not_authenticated"));
     }
     if (!response.ok) {
       const body = await response.json().catch(() => ({}));
-      throw new Error(body.error || "Something went wrong.");
+      throw new Error(body.error || t("something_wrong"));
     }
     return response.json();
   }
@@ -60,13 +60,17 @@
     return div.innerHTML;
   }
 
+  function topicLabel(topic) {
+    return topic === "All" ? t("topic_all") : topic;
+  }
+
   function renderTopicFilter(topics) {
     const chips = ["All", ...topics];
     if (selectedTopic !== "All" && !topics.includes(selectedTopic)) {
       chips.push(selectedTopic);
     }
     topicFilter.innerHTML = chips
-      .map((topic) => `<span class="topic-chip ${topic === selectedTopic ? "active" : ""}" data-topic="${escapeHTML(topic)}">${escapeHTML(topic)}</span>`)
+      .map((topic) => `<span class="topic-chip ${topic === selectedTopic ? "active" : ""}" data-topic="${escapeHTML(topic)}">${escapeHTML(topicLabel(topic))}</span>`)
       .join("");
     updateTopicToggleLabel();
   }
@@ -74,7 +78,7 @@
   function updateTopicToggleLabel() {
     if (!topicToggle) return;
     const arrow = topicFilterExpanded ? "▴" : "▾";
-    topicToggle.textContent = `📂 Topic: ${selectedTopic} ${arrow}`;
+    topicToggle.textContent = `📂 ${t("topic_toggle", { topic: topicLabel(selectedTopic) })} ${arrow}`;
   }
 
   function setTopicFilterExpanded(expanded) {
@@ -102,9 +106,9 @@
   function renderCounts(counts) {
     if (!countsBox || !counts) return;
     countsBox.hidden = false;
-    document.getElementById("count-new").textContent = `${counts.new || 0} new`;
-    document.getElementById("count-learn").textContent = `${counts.learning || 0} learn`;
-    document.getElementById("count-review").textContent = `${counts.review || 0} review`;
+    document.getElementById("count-new").textContent = t("count_new", { n: counts.new || 0 });
+    document.getElementById("count-learn").textContent = t("count_learn", { n: counts.learning || 0 });
+    document.getElementById("count-review").textContent = t("count_review", { n: counts.review || 0 });
   }
 
   function applyPreviews(card) {
@@ -137,8 +141,8 @@
     if (hour < Number(settings.notify_hour || 0)) return;
     if (!("Notification" in window) || Notification.permission !== "granted") return;
     try {
-      new Notification("Карточки на сегодня", {
-        body: `${dueCount} карточек ждут повторения.`,
+      new Notification(t("notify_title"), {
+        body: t("notify_body", { n: dueCount }),
         icon: "/static/icons/icon-192.png",
       });
       localStorage.setItem("card-nudge-date", today);
@@ -190,7 +194,7 @@
     studyArea.style.display = "";
 
     const card = queue[0];
-    studyProgress.textContent = `${queueTotal - queue.length + 1} of ${queueTotal}`;
+    studyProgress.textContent = t("progress_of", { current: queueTotal - queue.length + 1, total: queueTotal });
     studyTopic.textContent = card.topic;
     studyQuestion.textContent = card.question;
     studyAnswer.textContent = card.answer;
@@ -242,7 +246,7 @@
     if (!code) return;
     try {
       const result = await api("/api/import-shared-deck", { method: "POST", body: JSON.stringify({ code }) });
-      showToast(`Added ${result.card_count} cards from ${result.label}.`);
+      showToast(t("imported_deck", { n: result.card_count, label: result.label }));
       importDeckCode.value = "";
       await load();
     } catch (error) {
@@ -264,7 +268,7 @@
           }),
         });
         fillSettings(saved);
-        showToast("Лимиты сохранены.");
+        showToast(t("limits_saved"));
         await load();
       } catch (error) {
         showToast(error.message);
@@ -275,11 +279,11 @@
   if (enableNotify) {
     enableNotify.addEventListener("click", async () => {
       if (!("Notification" in window)) {
-        showToast("Этот браузер не умеет уведомления.");
+        showToast(t("notify_unsupported"));
         return;
       }
       const permission = await Notification.requestPermission();
-      showToast(permission === "granted" ? "Напоминания разрешены." : "Разрешение не выдано.");
+      showToast(permission === "granted" ? t("notify_allowed") : t("notify_denied"));
     });
   }
 

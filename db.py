@@ -271,16 +271,9 @@ def _init_sqlite(db):
         )"""
     )
     db.execute(
-        """CREATE TABLE IF NOT EXISTS book_highlights (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER NOT NULL REFERENCES users(id),
-            book_id INTEGER NOT NULL REFERENCES synced_books(id),
-            start_offset INTEGER NOT NULL DEFAULT 0,
-            end_offset INTEGER NOT NULL DEFAULT 0,
-            color TEXT NOT NULL DEFAULT 'yellow',
-            snippet TEXT NOT NULL DEFAULT '',
-            note TEXT NOT NULL DEFAULT '',
-            created_at TEXT NOT NULL DEFAULT ''
+        """CREATE TABLE IF NOT EXISTS user_prefs (
+            user_id INTEGER PRIMARY KEY REFERENCES users(id),
+            lang TEXT NOT NULL DEFAULT 'en'
         )"""
     )
 

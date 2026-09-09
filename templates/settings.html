@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block subtitle %}{{ t("settings_subtitle") }}{% endblock %}
+{% block content %}
+{% include "_nav.html" %}
+
+<p class="page-kicker">{{ t("settings_kicker") }}</p>
+<h2 class="page-title">{{ t("settings_title") }}</h2>
+<p class="page-lead">{{ t("settings_lead") }}</p>
+
+<div class="card">
+  <h2>{{ t("language") }}</h2>
+  <form method="post" action="{{ url_for('settings_page') }}" class="lang-form">
+    <div class="lang-grid">
+      <button type="submit" name="lang" value="en" class="lang-choice {% if lang == 'en' %}active{% endif %}">
+        <strong>{{ t("language_en") }}</strong>
+        <span>{{ t("language_en_hint") }}</span>
+      </button>
+      <button type="submit" name="lang" value="ru" class="lang-choice {% if lang == 'ru' %}active{% endif %}">
+        <strong>{{ t("language_ru") }}</strong>
+        <span>{{ t("language_ru_hint") }}</span>
+      </button>
+    </div>
+  </form>
+</div>
+
+<div class="card">
+  <h2>{{ t("appearance") }}</h2>
+  <div class="lang-grid">
+    <button type="button" class="lang-choice theme-choice" data-theme="light">{{ t("theme_light") }}</button>
+    <button type="button" class="lang-choice theme-choice" data-theme="dark">{{ t("theme_dark") }}</button>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+  document.querySelectorAll(".theme-choice").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var next = btn.getAttribute("data-theme");
+      try { localStorage.setItem("theme-preference", next); } catch (e) {}
+      document.documentElement.setAttribute("data-theme", next);
+      var toggle = document.getElementById("theme-toggle");
+      if (toggle) toggle.textContent = next === "dark" ? "☀️" : "🌙";
+    });
+  });
+</script>
+{% endblock %}

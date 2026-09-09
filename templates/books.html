@@ -1,15 +1,15 @@
 {% extends "base.html" %}
-{% block subtitle %}Книги{% endblock %}
+{% block subtitle %}{{ t("books_subtitle") }}{% endblock %}
 {% block content %}
 {% include "_nav.html" %}
 
-<p class="page-kicker">Library</p>
-<h2 class="page-title">Книги</h2>
-<p class="page-lead">Каждая книга открывается в ридере — отдельно от списка. В текстовых файлах можно красить маркером; в PDF — оставлять цветные заметки сбоку.</p>
+<p class="page-kicker">{{ t("library") }}</p>
+<h2 class="page-title">{{ t("books_title") }}</h2>
+<p class="page-lead">{{ t("books_lead") }}</p>
 
 {% if not books %}
 <div class="card empty-state">
-  Пока пусто — отметьте книгу в десктоп-приложении и синхронизируйте её сюда.
+  {{ t("books_empty") }}
 </div>
 {% else %}
 <div class="card">
@@ -19,7 +19,7 @@
         <span class="book-title">{{ book.title }}</span>
         <div class="book-meta">{{ book.size }}</div>
       </a>
-      <a class="ghost-link" href="{{ url_for('book_reader', book_id=book.id) }}" target="_blank" rel="noopener">↗</a>
+      <a class="ghost-link" href="{{ url_for('book_reader', book_id=book.id) }}" target="_blank" rel="noopener" title="{{ t('open_separately') }}">↗</a>
     </div>
   {% endfor %}
 </div>

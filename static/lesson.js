@@ -21,10 +21,10 @@
     });
     if (response.status === 401) {
       window.location.href = "/login";
-      throw new Error("not authenticated");
+      throw new Error(t("not_authenticated"));
     }
     const body = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(body.error || "Something went wrong.");
+    if (!response.ok) throw new Error(body.error || t("something_wrong"));
     return body;
   }
 
@@ -33,10 +33,14 @@
       try {
         await api(window.LESSON.grammarUrl, { method: "POST", body: "{}" });
         grammarBtn.disabled = true;
-        grammarBtn.textContent = "Прочитано";
-        showToast("Грамматика отмечена.");
+        grammarBtn.textContent = t("already_read");
+        showToast(t("grammar_marked"));
         const item = document.querySelector(".checklist .check-item");
-        if (item) item.classList.add("done");
+        if (item) {
+          item.classList.add("done");
+          const span = item.querySelector("span");
+          if (span) span.textContent = t("done");
+        }
       } catch (error) {
         showToast(error.message);
       }
@@ -47,7 +51,15 @@
     cardsBtn.addEventListener("click", async () => {
       try {
         const result = await api(window.LESSON.cardsUrl, { method: "POST", body: "{}" });
-        showToast(result.added ? `В колоду добавлено ${result.added} слов.` : "Эти слова уже в колоде.");
+        showToast(result.added ? t("cards_added", { n: result.added }) : t("cards_already"));
+        if (result.added || result.progress) {
+          const items = document.querySelectorAll(".checklist .check-item");
+          if (items[1]) {
+            items[1].classList.add("done");
+            const span = items[1].querySelector("span");
+            if (span) span.textContent = t("done");
+          }
+        }
       } catch (error) {
         showToast(error.message);
       }
@@ -76,10 +88,10 @@
           const explain = block.querySelector(".explain");
           if (explain) {
             explain.hidden = false;
-            explain.textContent = (item.correct ? "Верно. " : `Ответ: ${item.expected}. `) + (item.explanation || "");
+            explain.textContent = (item.correct ? t("answer_correct") : t("answer_expected", { expected: item.expected })) + (item.explanation || "");
           }
         });
-        showToast(`${result.correct} из ${result.total} верно.`);
+        showToast(t("score", { correct: result.correct, total: result.total }));
       } catch (error) {
         showToast(error.message);
       }

@@ -1,31 +1,31 @@
 {% extends "base.html" %}
-{% block subtitle %}Карточки · как в Anki{% endblock %}
+{% block subtitle %}{{ t("cards_subtitle") }}{% endblock %}
 {% block content %}
 {% include "_nav.html" %}
 
 <div id="anki-counts" class="anki-counts" hidden>
-  <span class="new" id="count-new">0 new</span>
-  <span class="learn" id="count-learn">0 learn</span>
-  <span class="review" id="count-review">0 review</span>
+  <span class="new" id="count-new"></span>
+  <span class="learn" id="count-learn"></span>
+  <span class="review" id="count-review"></span>
 </div>
 
-<button type="button" class="topic-toggle" id="topic-toggle">📂 Topic: All ▾</button>
+<button type="button" class="topic-toggle" id="topic-toggle"></button>
 <div id="topic-filter" class="topic-filter" style="display:none;"></div>
 
 <div id="empty-cards" class="card empty-state" style="display:none;">
-  Пока пусто. Откройте Learn, добавьте слова из урока — или импортируйте колоду кодом.
+  {{ t("cards_empty") }}
 </div>
 
 <div id="import-deck-card" class="card" style="display:none;">
-  <h2>Код колоды</h2>
+  <h2>{{ t("share_code_title") }}</h2>
   <form id="import-deck-form" class="import-deck-form">
-    <input type="text" id="import-deck-code" placeholder="например GOETHE-A1" autocapitalize="characters" autocomplete="off">
-    <button type="submit" class="primary">Import</button>
+    <input type="text" id="import-deck-code" placeholder="{{ t('share_code_placeholder') }}" autocapitalize="characters" autocomplete="off">
+    <button type="submit" class="primary">{{ t("import") }}</button>
   </form>
 </div>
 
 <div id="all-caught-up" class="card empty-state" style="display:none;">
-  На сегодня очередь пуста. Learning-карточки с коротким интервалом вернутся сами через минуту.
+  {{ t("caught_up") }}
 </div>
 
 <div id="study-area" style="display:none;">
@@ -36,41 +36,41 @@
     <div class="study-answer" id="study-answer" style="display:none;"></div>
     <div class="study-example" id="study-example" style="display:none;"></div>
   </div>
-  <button class="btn-reveal" id="reveal-btn">Показать ответ</button>
+  <button class="btn-reveal" id="reveal-btn">{{ t("show_answer") }}</button>
   <div class="study-actions" id="study-actions" style="display:none;">
-    <button class="btn-again" data-confidence="1">Again<span class="interval" data-preview="1"></span></button>
-    <button class="btn-hard" data-confidence="2">Hard<span class="interval" data-preview="2"></span></button>
-    <button class="btn-good" data-confidence="3">Good<span class="interval" data-preview="3"></span></button>
-    <button class="btn-easy" data-confidence="4">Easy<span class="interval" data-preview="4"></span></button>
+    <button class="btn-again" data-confidence="1">{{ t("again") }}<span class="interval" data-preview="1"></span></button>
+    <button class="btn-hard" data-confidence="2">{{ t("hard") }}<span class="interval" data-preview="2"></span></button>
+    <button class="btn-good" data-confidence="3">{{ t("good") }}<span class="interval" data-preview="3"></span></button>
+    <button class="btn-easy" data-confidence="4">{{ t("easy") }}<span class="interval" data-preview="4"></span></button>
   </div>
 </div>
 
 <div class="card" id="srs-settings-card">
-  <h2>Лимиты и напоминание</h2>
-  <p class="sync-note">Как в Anki: новые карточки в день отдельно от повторений. Again возвращает карточку через 1 минуту, не на завтра.</p>
+  <h2>{{ t("srs_title") }}</h2>
+  <p class="sync-note">{{ t("srs_note") }}</p>
   <form id="srs-form" class="settings-grid">
     <div>
-      <label for="new-per-day">Новых в день</label>
+      <label for="new-per-day">{{ t("new_per_day") }}</label>
       <input type="number" id="new-per-day" min="0" max="200" value="20">
     </div>
     <div>
-      <label for="reviews-per-day">Повторений в день</label>
+      <label for="reviews-per-day">{{ t("reviews_per_day") }}</label>
       <input type="number" id="reviews-per-day" min="0" max="9999" value="200">
     </div>
     <div>
-      <label for="notify-hour">Напоминание (час)</label>
+      <label for="notify-hour">{{ t("notify_hour") }}</label>
       <input type="number" id="notify-hour" min="0" max="23" value="9">
     </div>
     <div>
-      <label for="notify-enabled">Ежедневное напоминание</label>
+      <label for="notify-enabled">{{ t("daily_reminder") }}</label>
       <select id="notify-enabled">
-        <option value="1">Включено</option>
-        <option value="0">Выключено</option>
+        <option value="1">{{ t("enabled") }}</option>
+        <option value="0">{{ t("disabled") }}</option>
       </select>
     </div>
-    <button type="submit" class="primary" style="grid-column: 1 / -1;">Сохранить</button>
+    <button type="submit" class="primary" style="grid-column: 1 / -1;">{{ t("save") }}</button>
   </form>
-  <button type="button" class="ghost-link" id="enable-notify" style="margin-top:10px; background:none; border:none; cursor:pointer;">Разрешить уведомления в браузере</button>
+  <button type="button" class="ghost-link" id="enable-notify" style="margin-top:10px; background:none; border:none; cursor:pointer;">{{ t("enable_notifications") }}</button>
 </div>
 {% endblock %}
 {% block scripts %}

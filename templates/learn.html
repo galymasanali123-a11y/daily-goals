@@ -1,11 +1,11 @@
 {% extends "base.html" %}
-{% block subtitle %}Курсы: языки и медицина{% endblock %}
+{% block subtitle %}{{ t("learn_subtitle") }}{% endblock %}
 {% block content %}
 {% include "_nav.html" %}
 
-<p class="page-kicker">Learn</p>
-<h2 class="page-title">Выберите предмет</h2>
-<p class="page-lead">Нажмите на блок — откроются уровни и уроки. В каждом уроке грамматика простыми словами, слова на карточки и задания. Прогресс считается по всему курсу.</p>
+<p class="page-kicker">{{ t("learn_kicker") }}</p>
+<h2 class="page-title">{{ t("choose_subject") }}</h2>
+<p class="page-lead">{{ t("learn_lead") }}</p>
 
 <div class="course-grid">
   {% for course in courses %}
@@ -15,7 +15,7 @@
       <p>{{ course.subtitle }}</p>
       <div class="progress-line"><span style="width: {{ course.percent }}%; background: {{ course.accent }}"></span></div>
       <div class="progress-meta">
-        <span>{{ course.done }}/{{ course.total }} уроков</span>
+        <span>{{ t("lessons_count", done=course.done, total=course.total) }}</span>
         <span>{{ course.percent }}%</span>
       </div>
     </a>

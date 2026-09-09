@@ -28,11 +28,11 @@
     });
     if (response.status === 401) {
       window.location.href = "/login";
-      throw new Error("not authenticated");
+      throw new Error(t("not_authenticated"));
     }
     if (!response.ok) {
       const body = await response.json().catch(() => ({}));
-      throw new Error(body.error || "Something went wrong.");
+      throw new Error(body.error || t("something_wrong"));
     }
     return response.json();
   }
@@ -43,15 +43,15 @@
     return `
       <div class="goal-row" data-id="${goal.id}">
         <div class="reorder-col">
-          <button class="reorder-btn" data-dir="up" title="Move up" ${index === 0 ? "disabled" : ""}>▲</button>
-          <button class="reorder-btn" data-dir="down" title="Move down" ${index === total - 1 ? "disabled" : ""}>▼</button>
+          <button class="reorder-btn" data-dir="up" title="${t("move_up")}" ${index === 0 ? "disabled" : ""}>▲</button>
+          <button class="reorder-btn" data-dir="down" title="${t("move_down")}" ${index === total - 1 ? "disabled" : ""}>▼</button>
         </div>
         <button class="goal-toggle ${doneClass}">
           <span class="checkbox">${check}</span>
           <span class="goal-text">${escapeHTML(goal.text)}</span>
         </button>
-        <button class="icon-btn edit-btn" title="Edit">✎</button>
-        <button class="icon-btn delete-btn" title="Delete">✕</button>
+        <button class="icon-btn edit-btn" title="${t("edit")}">✎</button>
+        <button class="icon-btn delete-btn" title="${t("delete")}">✕</button>
       </div>`;
   }
 
@@ -79,7 +79,7 @@
     statStreak.textContent = `🔥 ${state.streak}`;
 
     if (state.goals.length === 0) {
-      goalsList.innerHTML = '<div class="empty-state">No goals yet — add one below to get started.</div>';
+      goalsList.innerHTML = `<div class="empty-state">${t("no_goals")}</div>`;
     } else {
       goalsList.innerHTML = state.goals.map((goal, index) => goalRowHTML(goal, index, state.goals.length)).join("");
     }
@@ -99,9 +99,9 @@
         const heightPct = Math.max(6, Math.round((day.count / maxCount) * 100));
         const isToday = day.date === today;
         const hasActivity = day.count > 0;
-        const label = new Date(day.date + "T00:00:00").toLocaleDateString(undefined, { weekday: "short" }).slice(0, 2);
+        const label = new Date(day.date + "T00:00:00").toLocaleDateString(window.LANG === "ru" ? "ru-RU" : "en-US", { weekday: "short" }).slice(0, 2);
         return `
-          <div class="history-day" title="${day.date}: ${day.count} done">
+          <div class="history-day" title="${escapeHTML(t("history_done", { date: day.date, count: day.count }))}">
             <div class="history-bar ${hasActivity ? "has-activity" : ""} ${isToday ? "is-today" : ""}" style="height:${heightPct}%"></div>
             <div class="history-label">${label}</div>
           </div>`;
@@ -125,12 +125,12 @@
       return;
     }
     let html = `
-      <div class="digest-row"><span>Day streak</span><span class="digest-value">🔥 ${digest.streak}</span></div>
-      <div class="digest-row"><span>Goals completed</span><span class="digest-value">${digest.goals_completed}</span></div>
-      <div class="digest-row"><span>Flashcards reviewed</span><span class="digest-value">${digest.reviews_completed}</span></div>
+      <div class="digest-row"><span>${t("day_streak")}</span><span class="digest-value">🔥 ${digest.streak}</span></div>
+      <div class="digest-row"><span>${t("goals_completed")}</span><span class="digest-value">${digest.goals_completed}</span></div>
+      <div class="digest-row"><span>${t("flashcards_reviewed")}</span><span class="digest-value">${digest.reviews_completed}</span></div>
     `;
     if (digest.weakest_topic) {
-      html += `<div class="digest-weak-topic">Weakest topic right now: <strong>${escapeHTML(digest.weakest_topic.topic)}</strong> (ease ${digest.weakest_topic.avg_ease})</div>`;
+      html += `<div class="digest-weak-topic">${t("weakest_topic", { topic: escapeHTML(digest.weakest_topic.topic), ease: digest.weakest_topic.avg_ease })}</div>`;
     }
     digestBody.innerHTML = html;
     digestCard.style.display = "";
@@ -174,7 +174,7 @@
     }
 
     if (event.target.closest(".delete-btn")) {
-      if (!confirm("Delete this goal?")) return;
+      if (!confirm(t("delete_goal_confirm"))) return;
       try {
         renderState(await api(`/api/goals/${goalId}/delete`, { method: "POST" }));
         refreshHistory();
@@ -219,8 +219,8 @@
     wrapper.style.cssText = "flex:1; display:flex; gap:6px;";
     wrapper.innerHTML = `
       <input type="text" class="goal-edit-input" value="${currentText.replace(/"/g, "&quot;")}">
-      <button class="icon-btn save-edit-btn" title="Save">✓</button>
-      <button class="icon-btn cancel-edit-btn" title="Cancel">✕</button>
+      <button class="icon-btn save-edit-btn" title="${t("save")}">✓</button>
+      <button class="icon-btn cancel-edit-btn" title="${t("cancel")}">✕</button>
     `;
     row.insertBefore(wrapper, editBtn);
     const input = wrapper.querySelector("input");
@@ -230,7 +230,7 @@
     async function save() {
       const newText = input.value.trim();
       if (!newText) {
-        showToast("Goal text can't be empty.");
+        showToast(t("goal_empty_error"));
         return;
       }
       try {

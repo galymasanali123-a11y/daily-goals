@@ -4,8 +4,8 @@
 {% include "_nav.html" %}
 
 <div class="back-row">
-  <a class="ghost-link" href="{{ url_for('learn_page') }}">← Все курсы</a>
-  <a class="ghost-link" href="{{ url_for('course_page', course_slug=course.slug) }}" target="_blank" rel="noopener">Открыть отдельно ↗</a>
+  <a class="ghost-link" href="{{ url_for('learn_page') }}">← {{ t("all_courses") }}</a>
+  <a class="ghost-link" href="{{ url_for('course_page', course_slug=course.slug) }}" target="_blank" rel="noopener">{{ t("open_separately") }} ↗</a>
 </div>
 
 <p class="page-kicker">{{ course.category }}</p>
@@ -15,8 +15,8 @@
 <div class="card">
   <div class="progress-line"><span style="width: {{ course.percent }}%; background: {{ course.accent }}"></span></div>
   <div class="progress-meta">
-    <span>Весь курс: {{ course.done }}/{{ course.total }} уроков</span>
-    <span>{{ course.counts.words }} слов · {{ course.counts.exercises }} заданий</span>
+    <span>{{ t("course_progress", done=course.done, total=course.total) }}</span>
+    <span>{{ t("words_exercises", words=course.counts.words, exercises=course.counts.exercises) }}</span>
   </div>
 </div>
 
@@ -36,7 +36,7 @@
       <span class="lesson-index">{{ '✓' if lesson.completed else loop.index }}</span>
       <span>
         <strong>{{ lesson.title }}</strong>
-        <small>{{ lesson.minutes }} мин · {{ lesson.words }} слов · {{ lesson.exercises }} заданий — {{ lesson.summary }}</small>
+        <small>{{ t("lesson_meta", minutes=lesson.minutes, words=lesson.words, exercises=lesson.exercises, summary=lesson.summary) }}</small>
       </span>
     </a>
   {% endfor %}

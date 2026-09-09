@@ -7,6 +7,8 @@ import json
 
 from flask import abort, jsonify, redirect, render_template, request, session, url_for
 
+from content_i18n import course_field, lesson_field, level_field
+from i18n import t
 from courses import (
     catalog_payload,
     course_payload,
@@ -81,12 +83,15 @@ def _upsert_progress(db, user_id, course_slug, lesson_slug, fields, lesson):
     return _lesson_progress(db, user_id, course_slug, lesson_slug)
 
 
-def _neighbors(level, lesson_slug):
+def _neighbors(course_slug, level, lesson_slug):
     slugs = [item["slug"] for item in level["lessons"]]
     index = slugs.index(lesson_slug)
     prev_slug = slugs[index - 1] if index > 0 else None
     next_slug = slugs[index + 1] if index + 1 < len(slugs) else None
-    titles = {item["slug"]: item["title"] for item in level["lessons"]}
+    titles = {
+        item["slug"]: lesson_field(course_slug, item["slug"], "title", item["title"])
+        for item in level["lessons"]
+    }
     return {
         "prev": {"slug": prev_slug, "title": titles[prev_slug]} if prev_slug else None,
         "next": {"slug": next_slug, "title": titles[next_slug]} if next_slug else None,
@@ -121,15 +126,26 @@ def register_learn_routes(app, get_db, login_required):
             abort(404)
         db = get_db()
         progress = _lesson_progress(db, session["user_id"], course_slug, lesson_slug)
+        lesson_view = dict(lesson)
+        lesson_view["title"] = lesson_field(course_slug, lesson_slug, "title", lesson["title"])
+        lesson_view["summary"] = lesson_field(course_slug, lesson_slug, "summary", lesson["summary"])
+        level_view = dict(level)
+        level_view["title"] = level_field(course_slug, level_slug, "title", level["title"])
+        course_view = {
+            "slug": course["slug"],
+            "title": course_field(course_slug, "title", course["title"]),
+            "short": course["short"],
+        }
         return render_template(
             "lesson.html",
-            course=course,
-            level=level,
-            lesson=lesson,
+            course=course_view,
+            level=level_view,
+            lesson=lesson_view,
             progress=progress,
             body_html=render_sections(lesson.get("sections")),
-            neighbors=_neighbors(level, lesson_slug),
+            neighbors=_neighbors(course_slug, level, lesson_slug),
             finished=lesson_complete(lesson, progress),
+            topic=lesson_topic(course, level, lesson),
         )
 
     @app.route("/api/learn/<course_slug>/<level_slug>/<lesson_slug>/grammar", methods=["POST"])
@@ -138,7 +154,7 @@ def register_learn_routes(app, get_db, login_required):
         course = get_course(course_slug)
         lesson = get_lesson(course, level_slug, lesson_slug)
         if not lesson:
-            return jsonify({"error": "not found"}), 404
+            return jsonify({"error": t("err_not_found")}), 404
         progress = _upsert_progress(
             get_db(), session["user_id"], course_slug, lesson_slug, {"grammar_done": 1}, lesson
         )
@@ -151,7 +167,7 @@ def register_learn_routes(app, get_db, login_required):
         level = get_level(course, level_slug)
         lesson = get_lesson(course, level_slug, lesson_slug)
         if not lesson:
-            return jsonify({"error": "not found"}), 404
+            return jsonify({"error": t("err_not_found")}), 404
         db = get_db()
         user_id = session["user_id"]
         topic = lesson_topic(course, level, lesson)
@@ -182,7 +198,7 @@ def register_learn_routes(app, get_db, login_required):
         course = get_course(course_slug)
         lesson = get_lesson(course, level_slug, lesson_slug)
         if not lesson:
-            return jsonify({"error": "not found"}), 404
+            return jsonify({"error": t("err_not_found")}), 404
         payload = request.get_json(silent=True) or {}
         submitted = payload.get("answers") or {}
         results = []
@@ -260,7 +276,7 @@ def register_learn_routes(app, get_db, login_required):
         user_id = session["user_id"]
         book = query_one(db, "SELECT id FROM synced_books WHERE id = ? AND user_id = ?", (book_id, user_id))
         if not book:
-            return jsonify({"error": "not found"}), 404
+            return jsonify({"error": t("err_not_found")}), 404
         if request.method == "GET":
             rows = query_all(
                 db,
@@ -301,7 +317,7 @@ def register_learn_routes(app, get_db, login_required):
             (highlight_id, book_id, user_id),
         )
         if not row:
-            return jsonify({"error": "not found"}), 404
+            return jsonify({"error": t("err_not_found")}), 404
         if request.method == "DELETE":
             db.execute("DELETE FROM book_highlights WHERE id = ?", (highlight_id,))
             return jsonify({"ok": True})

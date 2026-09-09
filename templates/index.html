@@ -7,33 +7,33 @@
 <div class="stat-row">
   <div class="stat-tile">
     <div class="value" id="stat-done">{{ state.done_count }}/{{ state.total_count }}</div>
-    <div class="label">Today</div>
+    <div class="label">{{ t("today") }}</div>
   </div>
   <div class="stat-tile">
     <div class="value" id="stat-streak">🔥 {{ state.streak }}</div>
-    <div class="label">Day streak</div>
+    <div class="label">{{ t("day_streak") }}</div>
   </div>
 </div>
 
 <a class="course-card" href="{{ url_for('learn_page') }}" style="margin-bottom:16px;">
   <div class="badge" style="background:var(--accent)">A</div>
-  <h2>Учить язык или медицину</h2>
-  <p>English, Deutsch и Medicine — уроки, слова и задания. Прогресс видно сразу.</p>
+  <h2>{{ t("learn_teaser_title") }}</h2>
+  <p>{{ t("learn_teaser_body") }}</p>
 </a>
 
 <div class="card">
-  <h2>Last 7 days</h2>
+  <h2>{{ t("last_7_days") }}</h2>
   <div id="history-strip" class="history-strip"></div>
 </div>
 
 <div class="card" id="digest-card" style="display:none;">
-  <h2>This week</h2>
+  <h2>{{ t("this_week") }}</h2>
   <div id="digest-body"></div>
 </div>
 
 {% if state.synced_tasks %}
 <div class="card" id="synced-card">
-  <h2>🖥️ Today's Planner tasks (from desktop)</h2>
+  <h2>🖥️ {{ t("planner_title") }}</h2>
   <div id="synced-list">
     {% for task in state.synced_tasks %}
       <div class="goal-row synced-row" data-id="{{ task.id }}">
@@ -44,42 +44,42 @@
       </div>
     {% endfor %}
   </div>
-  <p class="sync-note">Synced from your desktop Planner. Check one off here and it'll show as done next time you sync.</p>
+  <p class="sync-note">{{ t("planner_note") }}</p>
 </div>
 {% endif %}
 
 <div class="card">
-  <h2>Today's goals</h2>
+  <h2>{{ t("todays_goals") }}</h2>
   <div id="goals-list">
     {% if not state.goals %}
-      <div class="empty-state" id="empty-state">No goals yet — add one below to get started.</div>
+      <div class="empty-state" id="empty-state">{{ t("no_goals") }}</div>
     {% endif %}
     {% for goal in state.goals %}
       <div class="goal-row" data-id="{{ goal.id }}">
         <div class="reorder-col">
-          <button class="reorder-btn" data-dir="up" title="Move up">▲</button>
-          <button class="reorder-btn" data-dir="down" title="Move down">▼</button>
+          <button class="reorder-btn" data-dir="up" title="{{ t('move_up') }}">▲</button>
+          <button class="reorder-btn" data-dir="down" title="{{ t('move_down') }}">▼</button>
         </div>
         <button class="goal-toggle {{ 'done' if goal.done else '' }}">
           <span class="checkbox">{{ '✓' if goal.done else '' }}</span>
           <span class="goal-text">{{ goal.text }}</span>
         </button>
-        <button class="icon-btn edit-btn" title="Edit">✎</button>
-        <button class="icon-btn delete-btn" title="Delete">✕</button>
+        <button class="icon-btn edit-btn" title="{{ t('edit') }}">✎</button>
+        <button class="icon-btn delete-btn" title="{{ t('delete') }}">✕</button>
       </div>
     {% endfor %}
   </div>
 </div>
 
 <div class="card">
-  <h2>Add a goal</h2>
+  <h2>{{ t("add_a_goal") }}</h2>
   <form class="add-goal" id="add-goal-form">
-    <input type="text" name="text" id="add-goal-input" placeholder="e.g. Make the bed" required>
-    <button type="submit" class="primary">Add</button>
+    <input type="text" name="text" id="add-goal-input" placeholder="{{ t('goal_placeholder') }}" required>
+    <button type="submit" class="primary">{{ t("add") }}</button>
   </form>
 </div>
 
-<a class="muted-link" href="{{ url_for('logout') }}">Signed in as {{ state.username }} — sign out</a>
+<a class="muted-link" href="{{ url_for('logout') }}">{{ t("signed_in_as", name=state.username) }}</a>
 
 {% endblock %}
 {% block scripts %}
