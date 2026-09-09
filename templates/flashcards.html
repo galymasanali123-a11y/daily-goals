@@ -8,7 +8,8 @@
   <a class="nav-tab" href="{{ url_for('books_page') }}">Books</a>
 </div>
 
-<div id="topic-filter" class="topic-filter"></div>
+<button type="button" class="topic-toggle" id="topic-toggle">📂 Topic: All ▾</button>
+<div id="topic-filter" class="topic-filter" style="display:none;"></div>
 
 <div id="empty-cards" class="card empty-state" style="display:none;">
   Nothing synced yet — open the desktop app and sync your flashcards to your phone.

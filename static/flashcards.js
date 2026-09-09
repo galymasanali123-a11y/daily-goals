@@ -1,6 +1,7 @@
 (function () {
   "use strict";
 
+  const topicToggle = document.getElementById("topic-toggle");
   const topicFilter = document.getElementById("topic-filter");
   const emptyCards = document.getElementById("empty-cards");
   const importDeckCard = document.getElementById("import-deck-card");
@@ -23,6 +24,7 @@
   let queue = [];
   let queueTotal = 0;
   let revealed = false;
+  let topicFilterExpanded = false;
 
   function showToast(message) {
     toast.textContent = message;
@@ -58,7 +60,23 @@
     topicFilter.innerHTML = chips
       .map((topic) => `<span class="topic-chip ${topic === selectedTopic ? "active" : ""}" data-topic="${escapeHTML(topic)}">${escapeHTML(topic)}</span>`)
       .join("");
+    updateTopicToggleLabel();
   }
+
+  function updateTopicToggleLabel() {
+    const arrow = topicFilterExpanded ? "▴" : "▾";
+    topicToggle.textContent = `📂 Topic: ${selectedTopic} ${arrow}`;
+  }
+
+  function setTopicFilterExpanded(expanded) {
+    topicFilterExpanded = expanded;
+    topicFilter.style.display = expanded ? "" : "none";
+    updateTopicToggleLabel();
+  }
+
+  topicToggle.addEventListener("click", () => {
+    setTopicFilterExpanded(!topicFilterExpanded);
+  });
 
   topicFilter.addEventListener("click", (event) => {
     const chip = event.target.closest(".topic-chip");
@@ -66,6 +84,8 @@
     selectedTopic = chip.dataset.topic;
     renderTopicFilter([...new Set(allCards.map((card) => card.topic))].sort());
     buildQueue();
+    // Picking a topic collapses the list again -- a quick switch, not a permanent panel.
+    setTopicFilterExpanded(false);
   });
 
   function buildQueue() {
