@@ -11,6 +11,7 @@
   const digestCard = document.getElementById("digest-card");
   const digestBody = document.getElementById("digest-body");
   const toast = document.getElementById("toast");
+  if (!goalsList || !addForm) return;
 
   let editingId = null;
 

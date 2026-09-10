@@ -20,6 +20,7 @@
   const countsBox = document.getElementById("anki-counts");
   const srsForm = document.getElementById("srs-form");
   const enableNotify = document.getElementById("enable-notify");
+  if (!revealBtn || !studyActions) return;
 
   const params = new URLSearchParams(window.location.search);
   let allCards = [];
@@ -228,7 +229,9 @@
     submitReview(parseInt(button.dataset.confidence, 10));
   });
 
-  document.addEventListener("keydown", (event) => {
+  document.addEventListener("keydown", onKey);
+  function onKey(event) {
+    if (!document.getElementById("study-area")) return;
     if (!revealed) {
       if (event.key === " " || event.key === "Enter") {
         event.preventDefault();
@@ -238,7 +241,7 @@
     }
     const map = { 1: 1, 2: 2, 3: 3, 4: 4 };
     if (map[event.key]) submitReview(map[event.key]);
-  });
+  }
 
   importDeckForm.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -303,4 +306,9 @@
   }
 
   load();
+
+  window._pageCleanup = function () {
+    clearTimeout(wakeTimer);
+    document.removeEventListener("keydown", onKey);
+  };
 })();

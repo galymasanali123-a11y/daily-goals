@@ -1,9 +1,10 @@
-const CACHE_NAME = "daily-goals-v3";
+const CACHE_NAME = "daily-goals-v4";
 const APP_SHELL = [
   "/static/manifest.json",
   "/static/icons/icon-192.png",
   "/static/icons/icon-512.png",
   "/static/i18n.js",
+  "/static/nav.js",
   "/static/app.js",
   "/static/app-ui.css",
   "/static/flashcards.js",
@@ -27,32 +28,37 @@ self.addEventListener("activate", (event) => {
   self.clients.claim();
 });
 
+function staleWhileRevalidate(request) {
+  return caches.open(CACHE_NAME).then((cache) =>
+    cache.match(request).then((cached) => {
+      const network = fetch(request)
+        .then((response) => {
+          if (response && response.ok) cache.put(request, response.clone());
+          return response;
+        })
+        .catch(() => cached);
+      return cached || network;
+    })
+  );
+}
+
 self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
+  if (event.request.method !== "GET") return;
 
   // Never cache API calls or auth pages — always go to the network so data stays live.
   if (url.pathname.startsWith("/api/") || url.pathname.startsWith("/login") || url.pathname.startsWith("/register") || url.pathname.startsWith("/logout")) {
     return;
   }
 
-  // App shell (static assets): cache-first for speed.
+  if (url.pathname === "/sw.js") return;
+
   if (url.pathname.startsWith("/static/")) {
-    event.respondWith(
-      caches.match(event.request).then((cached) => cached || fetch(event.request))
-    );
+    event.respondWith(staleWhileRevalidate(event.request));
     return;
   }
 
-  // Pages (e.g. "/"): network-first, fall back to cache when offline.
-  event.respondWith(
-    fetch(event.request)
-      .then((response) => {
-        const copy = response.clone();
-        caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
-        return response;
-      })
-      .catch(() => caches.match(event.request))
-  );
+  event.respondWith(staleWhileRevalidate(event.request));
 });
 
 self.addEventListener("notificationclick", (event) => {

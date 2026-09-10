@@ -528,3 +528,101 @@ header.top .settings-link {
   }
   .nav-tabs { display: none; }
 }
+
+html { touch-action: manipulation; }
+header.top { view-transition-name: app-header; }
+main { view-transition-name: app-main; }
+.bottom-nav { view-transition-name: app-dock; }
+
+#nav-progress {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 80;
+  height: 2px;
+  width: 0;
+  pointer-events: none;
+  background: #2dd4bf;
+  opacity: 0;
+  transform-origin: left center;
+  transition: width 0.35s ease, opacity 0.16s ease;
+}
+#nav-progress.on {
+  opacity: 1;
+  width: 72%;
+}
+#nav-progress.on.done {
+  width: 100%;
+  opacity: 0;
+  transition: width 0.16s ease, opacity 0.2s ease 0.04s;
+}
+
+@keyframes dg-out {
+  to { opacity: 0; transform: translateY(8px); }
+}
+@keyframes dg-in {
+  from { opacity: 0; transform: translateY(10px); }
+}
+::view-transition-old(app-main) {
+  animation: dg-out 0.16s ease both;
+}
+::view-transition-new(app-main) {
+  animation: dg-in 0.22s ease both;
+}
+
+.nav-tab,
+.bottom-nav a,
+.course-card,
+.lesson-row,
+.lang-choice,
+button.primary,
+.btn-reveal,
+.study-actions button,
+.ghost-link,
+.topic-chip,
+.topic-toggle,
+.icon-btn,
+.goal-toggle,
+.swatch {
+  transition:
+    background-color 0.18s ease,
+    color 0.18s ease,
+    transform 0.18s ease,
+    box-shadow 0.18s ease,
+    border-color 0.18s ease,
+    opacity 0.18s ease;
+}
+.course-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 14px 32px rgba(28, 42, 51, 0.1);
+}
+.course-card:active,
+.lesson-row:active,
+.nav-tab:active,
+.bottom-nav a:active,
+.lang-choice:active,
+button.primary:active,
+.btn-reveal:active,
+.study-actions button:active {
+  transform: scale(0.97);
+}
+.progress-line > span { transition: width 0.45s ease; }
+.card {
+  animation: dg-in 0.26s ease both;
+}
+main.page-in {
+  animation: dg-in 0.2s ease both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+  ::view-transition-old(app-main),
+  ::view-transition-new(app-main) {
+    animation: none !important;
+  }
+}

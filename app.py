@@ -101,6 +101,20 @@ def set_language():
     g.lang = detect_lang(cookie, stored, accept)
 
 
+@app.after_request
+def add_speed_headers(response):
+    path = request.path
+    if path.startswith("/static/"):
+        response.headers["Cache-Control"] = "public, max-age=604800, stale-while-revalidate=86400"
+    elif path == "/sw.js":
+        response.headers["Cache-Control"] = "no-cache"
+    elif path.startswith("/api/"):
+        response.headers["Cache-Control"] = "no-store"
+    elif request.method == "GET" and response.mimetype and "html" in response.mimetype:
+        response.headers["Cache-Control"] = "private, max-age=0, must-revalidate"
+    return response
+
+
 def _set_lang_cookie(response, lang):
     response.set_cookie(
         COOKIE,

@@ -639,8 +639,15 @@
   }
 </style>
 <link rel="stylesheet" href="{{ url_for('static', filename='app-ui.css') }}">
+{% if not is_auth_page %}
+<link rel="prefetch" href="{{ url_for('index') }}">
+<link rel="prefetch" href="{{ url_for('learn_page') }}">
+<link rel="prefetch" href="{{ url_for('flashcards_page') }}">
+<link rel="prefetch" href="{{ url_for('books_page') }}">
+{% endif %}
 </head>
 <body class="{% if is_auth_page %}auth-page{% endif %} {% if wide_layout %}wide-layout{% endif %}">
+<div id="nav-progress" hidden></div>
 <header class="top">
   <a class="theme-toggle-btn settings-link" href="{{ url_for('settings_page') }}" aria-label="{{ t('nav_settings') }}" title="{{ t('nav_settings') }}">⚙</a>
   <button type="button" class="theme-toggle-btn" id="theme-toggle" aria-label="{{ t('theme_toggle') }}">🌙</button>
@@ -666,9 +673,7 @@
 <script src="{{ url_for('static', filename='i18n.js') }}"></script>
 <script>
   if ("serviceWorker" in navigator) {
-    window.addEventListener("load", () => {
-      navigator.serviceWorker.register("/sw.js").catch(() => {});
-    });
+    navigator.serviceWorker.register("/sw.js").catch(function () {});
   }
 
   (function () {
@@ -707,18 +712,19 @@
     updateIcon();
   })();
 
-  document.querySelectorAll(".password-toggle").forEach(function (btn) {
-    btn.addEventListener("click", function () {
-      var field = btn.closest(".password-field");
-      var input = field && field.querySelector("input");
-      if (!input) return;
-      var show = input.type === "password";
-      input.type = show ? "text" : "password";
-      btn.setAttribute("aria-pressed", show ? "true" : "false");
-      btn.setAttribute("aria-label", show ? t("hide_password") : t("show_password"));
-    });
+  document.addEventListener("click", function (event) {
+    var btn = event.target.closest(".password-toggle");
+    if (!btn) return;
+    var field = btn.closest(".password-field");
+    var input = field && field.querySelector("input");
+    if (!input) return;
+    var show = input.type === "password";
+    input.type = show ? "text" : "password";
+    btn.setAttribute("aria-pressed", show ? "true" : "false");
+    btn.setAttribute("aria-label", show ? t("hide_password") : t("show_password"));
   });
 </script>
-{% block scripts %}{% endblock %}
+<div id="page-scripts">{% block scripts %}{% endblock %}</div>
+<script src="{{ url_for('static', filename='nav.js') }}"></script>
 </body>
 </html>
