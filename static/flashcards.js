@@ -22,6 +22,11 @@
   const enableNotify = document.getElementById("enable-notify");
   if (!revealBtn || !studyActions) return;
 
+  let pageAlive = true;
+  function onPage() {
+    return pageAlive && revealBtn.isConnected;
+  }
+
   const params = new URLSearchParams(window.location.search);
   let allCards = [];
   let selectedTopic = params.get("topic") || "All";
@@ -33,6 +38,7 @@
   let wakeTimer = null;
 
   function showToast(message) {
+    if (!onPage() || !toast || !message) return;
     toast.textContent = message;
     toast.classList.add("show");
     clearTimeout(showToast._t);
@@ -66,6 +72,7 @@
   }
 
   function renderTopicFilter(topics) {
+    if (!onPage() || !topicFilter) return;
     const chips = ["All", ...topics];
     if (selectedTopic !== "All" && !topics.includes(selectedTopic)) {
       chips.push(selectedTopic);
@@ -84,7 +91,7 @@
 
   function setTopicFilterExpanded(expanded) {
     topicFilterExpanded = expanded;
-    topicFilter.style.display = expanded ? "" : "none";
+    if (topicFilter) topicFilter.style.display = expanded ? "" : "none";
     updateTopicToggleLabel();
   }
 
@@ -94,22 +101,27 @@
     });
   }
 
-  topicFilter.addEventListener("click", (event) => {
-    const chip = event.target.closest(".topic-chip");
-    if (!chip) return;
-    selectedTopic = chip.dataset.topic;
-    renderTopicFilter([...new Set(allCards.map((card) => card.topic))].sort());
-    buildQueue();
-    // Picking a topic collapses the list again -- a quick switch, not a permanent panel.
-    setTopicFilterExpanded(false);
-  });
+  if (topicFilter) {
+    topicFilter.addEventListener("click", (event) => {
+      const chip = event.target.closest(".topic-chip");
+      if (!chip) return;
+      selectedTopic = chip.dataset.topic;
+      renderTopicFilter([...new Set(allCards.map((card) => card.topic))].sort());
+      buildQueue();
+      setTopicFilterExpanded(false);
+    });
+  }
 
   function renderCounts(counts) {
-    if (!countsBox || !counts) return;
+    if (!onPage() || !countsBox || !counts) return;
+    const nEl = document.getElementById("count-new");
+    const lEl = document.getElementById("count-learn");
+    const rEl = document.getElementById("count-review");
+    if (!nEl || !lEl || !rEl) return;
+    nEl.textContent = t("count_new", { n: counts.new || 0 });
+    lEl.textContent = t("count_learn", { n: counts.learning || 0 });
+    rEl.textContent = t("count_review", { n: counts.review || 0 });
     countsBox.hidden = false;
-    document.getElementById("count-new").textContent = t("count_new", { n: counts.new || 0 });
-    document.getElementById("count-learn").textContent = t("count_learn", { n: counts.learning || 0 });
-    document.getElementById("count-review").textContent = t("count_review", { n: counts.review || 0 });
   }
 
   function applyPreviews(card) {
@@ -159,7 +171,9 @@
       .sort((a, b) => a - b)[0];
     if (!soonest) return;
     const delay = Math.max(1000, soonest - Date.now() + 400);
-    wakeTimer = setTimeout(() => load(), Math.min(delay, 10 * 60 * 1000));
+    wakeTimer = setTimeout(() => {
+      if (onPage()) load();
+    }, Math.min(delay, 10 * 60 * 1000));
   }
 
   function buildQueue() {
@@ -170,6 +184,7 @@
   }
 
   function showNextCard() {
+    if (!onPage()) return;
     revealed = false;
     studyAnswer.style.display = "none";
     studyExample.style.display = "none";
@@ -212,15 +227,15 @@
   });
 
   async function submitReview(confidence) {
-    if (!revealed || queue.length === 0) return;
+    if (!onPage() || !revealed || queue.length === 0) return;
     const card = queue[0];
     try {
       await api(`/api/cards/${card.id}/review`, { method: "POST", body: JSON.stringify({ confidence }) });
     } catch (error) {
-      showToast(error.message);
+      if (onPage()) showToast(error.message);
       return;
     }
-    await load();
+    if (onPage()) await load();
   }
 
   studyActions.addEventListener("click", (event) => {
@@ -290,24 +305,39 @@
     });
   }
 
+  function applyData(data) {
+    if (!onPage() || !data) return;
+    allCards = data.cards || [];
+    fillSettings(data.settings);
+    renderCounts(data.counts);
+    renderTopicFilter(data.topics || []);
+    buildQueue();
+    scheduleWake(data.waiting_at);
+    maybeNotify(data.due_count);
+  }
+
   async function load() {
     try {
       const data = await api("/api/cards");
-      allCards = data.cards;
-      fillSettings(data.settings);
-      renderCounts(data.counts);
-      renderTopicFilter(data.topics);
-      buildQueue();
-      scheduleWake(data.waiting_at);
-      maybeNotify(data.due_count);
+      if (!onPage()) return;
+      applyData(data);
     } catch (error) {
-      showToast(error.message);
+      if (onPage()) showToast(error.message);
     }
   }
 
-  load();
+  const bootstrapEl = document.getElementById("cards-bootstrap");
+  let bootstrapped = false;
+  if (bootstrapEl) {
+    try {
+      applyData(JSON.parse(bootstrapEl.textContent));
+      bootstrapped = true;
+    } catch (error) {}
+  }
+  if (!bootstrapped) load();
 
   window._pageCleanup = function () {
+    pageAlive = false;
     clearTimeout(wakeTimer);
     document.removeEventListener("keydown", onKey);
   };

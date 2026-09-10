@@ -74,5 +74,6 @@
 </div>
 {% endblock %}
 {% block scripts %}
+<script type="application/json" id="cards-bootstrap">{{ cards_bootstrap | tojson }}</script>
 <script src="{{ url_for('static', filename='flashcards.js') }}"></script>
 {% endblock %}

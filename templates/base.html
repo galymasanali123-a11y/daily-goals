@@ -2,7 +2,7 @@
 <html lang="{{ lang }}">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover, interactive-widget=overlays-content">
 <title>{% block title %}{{ t("app_name") }}{% endblock %}</title>
 <script>
   // Applied synchronously, before first paint, so a saved preference never flashes the
@@ -14,6 +14,11 @@
       if (saved === "light" || saved === "dark") {
         document.documentElement.setAttribute("data-theme", saved);
       }
+    } catch (e) {}
+    try {
+      var standalone = window.navigator.standalone === true ||
+        (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches);
+      if (standalone) document.documentElement.classList.add("standalone");
     } catch (e) {}
   })();
 </script>
@@ -44,18 +49,23 @@
     --danger: #dc2626;
     --rose: #e2536b;
     --amber: #f59e0b;
+    --dock-h: 64px;
     color-scheme: light;
   }
   * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html, body { min-height: 100%; min-height: 100dvh; }
   body {
     margin: 0;
     font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
     background: var(--bg);
     color: var(--text-primary);
     min-height: 100vh;
+    min-height: 100dvh;
     display: flex;
     flex-direction: column;
     align-items: center;
+    overscroll-behavior: none;
   }
   header.top {
     width: 100%;
@@ -462,13 +472,13 @@
   :root[data-theme="dark"] .error { background: #3a1a1a; }
   .theme-toggle-btn {
     position: absolute;
-    top: calc(14px + env(safe-area-inset-top));
+    top: calc(14px + env(safe-area-inset-top, 0px));
     right: 16px;
     background: rgba(255, 255, 255, 0.12);
     border: none;
     border-radius: 999px;
-    width: 34px;
-    height: 34px;
+    width: 44px;
+    height: 44px;
     font-size: 1rem;
     line-height: 1;
     cursor: pointer;
@@ -486,7 +496,7 @@
   .toast {
     position: fixed;
     left: 50%;
-    bottom: calc(20px + env(safe-area-inset-bottom));
+    bottom: calc(20px + env(safe-area-inset-bottom, 0px));
     transform: translateX(-50%) translateY(20px);
     background: var(--navy);
     color: white;

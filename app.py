@@ -11,12 +11,15 @@ Deploy: see README.md for Render.com + Supabase instructions.
 import datetime
 import json
 import os
+import uuid
 from functools import wraps
 from pathlib import Path
 
 from flask import Flask, Response, abort, g, jsonify, redirect, render_template, request, send_from_directory, session, url_for
 from werkzeug.security import check_password_hash, generate_password_hash
+from werkzeug.utils import secure_filename
 
+import catalog
 from db import INTEGRITY_ERRORS, connect_db, init_db, query_all, query_one
 from i18n import COOKIE, catalog_for, detect_lang, normalize_lang, parse_accept_language, t
 from learn_routes import register_learn_routes
@@ -71,8 +74,15 @@ app.config["PERMANENT_SESSION_LIFETIME"] = datetime.timedelta(days=365)
 # confirmed stable in production; going higher needs a streaming upload (or more RAM) rather
 # than just a bigger number here.
 MAX_BOOK_SIZE = 60 * 1024 * 1024
+PHONE_BOOK_SIZE = 8 * 1024 * 1024
 app.config["MAX_CONTENT_LENGTH"] = MAX_BOOK_SIZE + (1024 * 1024)
 INLINE_BOOK_TYPES = {"application/pdf", "text/plain", "text/markdown"}
+PHONE_BOOK_TYPES = {
+    ".pdf": "application/pdf",
+    ".txt": "text/plain",
+    ".md": "text/markdown",
+    ".markdown": "text/markdown",
+}
 
 
 def get_db():
@@ -93,10 +103,14 @@ def set_language():
     cookie = request.cookies.get(COOKIE)
     stored = None
     if not normalize_lang(cookie) and session.get("user_id") and not request.path.startswith("/static"):
-        try:
-            stored = load_user_lang(get_db(), session["user_id"])
-        except Exception:
-            stored = None
+        if "ui_lang" in session:
+            stored = session.get("ui_lang") or None
+        else:
+            try:
+                stored = load_user_lang(get_db(), session["user_id"])
+            except Exception:
+                stored = None
+            session["ui_lang"] = stored or ""
     accept = parse_accept_language(request.headers.get("Accept-Language"))
     g.lang = detect_lang(cookie, stored, accept)
 
@@ -209,30 +223,35 @@ def settings_page():
             except Exception:
                 pass
         g.lang = lang
+        session["ui_lang"] = lang
         return _set_lang_cookie(redirect(url_for("settings_page")), lang)
-    return render_template("settings.html")
+    srs_settings = None
+    if session.get("user_id"):
+        srs_settings = load_srs_settings(get_db(), session["user_id"])
+    return render_template("settings.html", srs_settings=srs_settings)
 
 
 def today_str():
     return datetime.date.today().isoformat()
 
 
-def compute_streak(db, user_id):
+def compute_streak(db, user_id, done_dates=None):
     """Consecutive days (ending today) with at least one goal or synced task completed, for this user."""
-    goal_dates = {
-        row["date"]
-        for row in query_all(
-            db,
-            "SELECT DISTINCT c.date AS date FROM completions c JOIN goals g ON g.id = c.goal_id "
-            "WHERE g.user_id = ? AND c.done = 1",
-            (user_id,),
-        )
-    }
-    synced_dates = {
-        row["date"]
-        for row in query_all(db, "SELECT DISTINCT date FROM synced_tasks WHERE user_id = ? AND done = 1", (user_id,))
-    }
-    done_dates = goal_dates | synced_dates
+    if done_dates is None:
+        cutoff = (datetime.date.today() - datetime.timedelta(days=800)).isoformat()
+        done_dates = {
+            row["date"]
+            for row in query_all(
+                db,
+                "SELECT date FROM ("
+                "  SELECT DISTINCT c.date AS date FROM completions c JOIN goals g ON g.id = c.goal_id "
+                "  WHERE g.user_id = ? AND c.done = 1 AND c.date >= ?"
+                "  UNION "
+                "  SELECT DISTINCT date FROM synced_tasks WHERE user_id = ? AND done = 1 AND date >= ?"
+                ") streak_days",
+                (user_id, cutoff, user_id, cutoff),
+            )
+        }
     streak = 0
     day = datetime.date.today()
     while day.isoformat() in done_dates:
@@ -242,18 +261,15 @@ def compute_streak(db, user_id):
 
 
 def goals_with_status(db, user_id):
-    goals = query_all(db, "SELECT * FROM goals WHERE user_id = ? ORDER BY sort_order", (user_id,))
     today = today_str()
-    completions = {
-        row["goal_id"]: bool(row["done"])
-        for row in query_all(
-            db,
-            "SELECT c.goal_id AS goal_id, c.done AS done FROM completions c JOIN goals g ON g.id = c.goal_id "
-            "WHERE g.user_id = ? AND c.date = ?",
-            (user_id, today),
-        )
-    }
-    return [{"id": goal["id"], "text": goal["text"], "done": completions.get(goal["id"], False)} for goal in goals]
+    rows = query_all(
+        db,
+        "SELECT g.id AS id, g.text AS text, COALESCE(c.done, 0) AS done "
+        "FROM goals g LEFT JOIN completions c ON c.goal_id = g.id AND c.date = ? "
+        "WHERE g.user_id = ? ORDER BY g.sort_order, g.id",
+        (today, user_id),
+    )
+    return [{"id": row["id"], "text": row["text"], "done": bool(row["done"])} for row in rows]
 
 
 def synced_tasks_for_today(db, user_id):
@@ -317,45 +333,86 @@ def cards_for_user(db, user_id):
     return [card_row_to_dict(row) for row in rows]
 
 
-def weakest_topic(cards):
-    """Same idea as the desktop app's topic_weakness_report(), just returning the single
-    weakest topic (lowest average ease) for the digest instead of the full ranked list."""
-    topics = {}
-    for card in cards:
-        if card["reps"] == 0 and card["lapses"] == 0:
-            continue
-        stats = topics.setdefault(card["topic"], {"ease_total": 0.0, "count": 0})
-        stats["ease_total"] += card["ease"]
-        stats["count"] += 1
-    if not topics:
-        return None
-    ranked = sorted(topics.items(), key=lambda item: item[1]["ease_total"] / item[1]["count"])
-    topic, stats = ranked[0]
-    return {"topic": topic, "avg_ease": round(stats["ease_total"] / stats["count"], 2)}
+WEEKDAY_LABELS = {
+    "en": ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"],
+    "ru": ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"],
+}
 
 
-def weekly_digest(db, user_id):
+def _as_int(value, default=0):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def history_payload(db, user_id, lang=None, today=None):
+    """One grouped query for the 7-day strip instead of a COUNT per day."""
+    today_date = datetime.date.fromisoformat(today) if today else datetime.date.today()
+    start = (today_date - datetime.timedelta(days=6)).isoformat()
+    end = today_date.isoformat()
+    total_goals = _as_int(
+        query_one(db, "SELECT COUNT(*) AS n FROM goals WHERE user_id = ?", (user_id,))["n"]
+    )
+    rows = query_all(
+        db,
+        "SELECT day, SUM(n) AS n FROM ("
+        "  SELECT c.date AS day, COUNT(*) AS n"
+        "  FROM completions c JOIN goals g ON g.id = c.goal_id"
+        "  WHERE g.user_id = ? AND c.done = 1 AND c.date >= ? AND c.date <= ?"
+        "  GROUP BY c.date"
+        "  UNION ALL"
+        "  SELECT date AS day, COUNT(*) AS n"
+        "  FROM synced_tasks"
+        "  WHERE user_id = ? AND done = 1 AND date >= ? AND date <= ?"
+        "  GROUP BY date"
+        ") grouped GROUP BY day",
+        (user_id, start, end, user_id, start, end),
+    )
+    counts = {row["day"]: _as_int(row["n"]) for row in rows}
+    return _history_from_counts(counts, total_goals, lang or getattr(g, "lang", None), today_date.isoformat())
+
+
+def weekly_digest(db, user_id, streak=None):
     """Sunday-summary data: streak, goals completed and flashcards reviewed in the last 7
     days, and the weakest topic right now -- reuses data already computed elsewhere rather
     than tracking anything new (except reviews-this-week, backed by card_review_events)."""
     week_ago = (datetime.date.today() - datetime.timedelta(days=6)).isoformat()
-    goals_this_week = query_one(
+    row = query_one(
         db,
-        "SELECT COUNT(*) AS n FROM completions c JOIN goals g ON g.id = c.goal_id "
-        "WHERE g.user_id = ? AND c.date >= ? AND c.done = 1",
-        (user_id, week_ago),
-    )["n"]
-    reviews_this_week = query_one(
-        db,
-        "SELECT COUNT(*) AS n FROM card_review_events WHERE user_id = ? AND reviewed_at >= ?",
-        (user_id, week_ago),
-    )["n"]
+        "SELECT "
+        "  (SELECT COUNT(*) FROM completions c JOIN goals g ON g.id = c.goal_id "
+        "   WHERE g.user_id = ? AND c.date >= ? AND c.done = 1) AS goals_week, "
+        "  (SELECT COUNT(*) FROM card_review_events "
+        "   WHERE user_id = ? AND reviewed_at >= ?) AS reviews_week, "
+        "  (SELECT topic FROM synced_cards WHERE user_id = ? AND (reps > 0 OR lapses > 0) "
+        "   GROUP BY topic ORDER BY AVG(ease) ASC LIMIT 1) AS topic, "
+        "  (SELECT AVG(ease) FROM synced_cards WHERE user_id = ? AND (reps > 0 OR lapses > 0) AND topic = ("
+        "    SELECT topic FROM synced_cards WHERE user_id = ? AND (reps > 0 OR lapses > 0) "
+        "    GROUP BY topic ORDER BY AVG(ease) ASC LIMIT 1"
+        "  )) AS avg_ease",
+        (user_id, week_ago, user_id, week_ago, user_id, user_id, user_id),
+    )
+    topic = row["topic"] if row else None
+    avg_ease = row["avg_ease"] if row else None
+    weakest = None
+    if topic is not None and avg_ease is not None:
+        weakest = {"topic": topic, "avg_ease": round(float(avg_ease), 2)}
     return {
-        "streak": compute_streak(db, user_id),
-        "goals_completed": goals_this_week,
-        "reviews_completed": reviews_this_week,
-        "weakest_topic": weakest_topic(cards_for_user(db, user_id)),
+        "streak": streak if streak is not None else compute_streak(db, user_id),
+        "goals_completed": _as_int(row["goals_week"] if row else 0),
+        "reviews_completed": _as_int(row["reviews_week"] if row else 0),
+        "weakest_topic": weakest,
     }
+
+
+def digest_visible(digest):
+    return not (
+        digest["streak"] == 0
+        and digest["goals_completed"] == 0
+        and digest["reviews_completed"] == 0
+        and not digest["weakest_topic"]
+    )
 
 
 def load_srs_settings(db, user_id):
@@ -415,19 +472,104 @@ def select_study_cards(cards, db, user_id, new_limit=None):
     return selected_ids, waiting_at, counts, settings
 
 
+def _history_from_counts(counts, total_goals, lang, today):
+    today_date = datetime.date.fromisoformat(today)
+    labels = WEEKDAY_LABELS.get(lang) or WEEKDAY_LABELS["en"]
+    max_count = max(total_goals, 1, *(counts.values() or [0]))
+    days = []
+    for offset in range(6, -1, -1):
+        day = (today_date - datetime.timedelta(days=offset)).isoformat()
+        count = counts.get(day, 0)
+        weekday = datetime.date.fromisoformat(day).weekday()
+        days.append({
+            "date": day,
+            "count": count,
+            "label": labels[weekday],
+            "height": max(6, round((count / max_count) * 100)),
+        })
+    return {"days": days, "total_goals": total_goals}
+
+
 def current_state(db, user_id):
-    goal_rows = goals_with_status(db, user_id)
-    synced_rows = synced_tasks_for_today(db, user_id)
+    today = today_str()
+    start = (datetime.date.fromisoformat(today) - datetime.timedelta(days=6)).isoformat()
+    cutoff = (datetime.date.fromisoformat(today) - datetime.timedelta(days=800)).isoformat()
+    lang = getattr(g, "lang", None) or "en"
+    rows = query_all(
+        db,
+        "SELECT 'goal' AS k, g.id AS id, g.text AS text, COALESCE(c.done, 0) AS n, "
+        "       g.sort_order AS sort_order, CAST(NULL AS TEXT) AS day, "
+        "       CAST(NULL AS TEXT) AS time, CAST(NULL AS TEXT) AS task_type, "
+        "       CAST(NULL AS TEXT) AS external_id "
+        "FROM goals g LEFT JOIN completions c ON c.goal_id = g.id AND c.date = ? "
+        "WHERE g.user_id = ? "
+        "UNION ALL "
+        "SELECT 'task', t.id, t.text, t.done, CAST(NULL AS INTEGER), t.date, t.time, t.task_type, t.external_id "
+        "FROM synced_tasks t WHERE t.user_id = ? AND t.date = ? "
+        "UNION ALL "
+        "SELECT 'hist', CAST(NULL AS INTEGER), CAST(NULL AS TEXT), SUM(n), CAST(NULL AS INTEGER), day, "
+        "       CAST(NULL AS TEXT), CAST(NULL AS TEXT), CAST(NULL AS TEXT) "
+        "FROM ("
+        "  SELECT c.date AS day, COUNT(*) AS n FROM completions c JOIN goals g ON g.id = c.goal_id "
+        "  WHERE g.user_id = ? AND c.done = 1 AND c.date >= ? AND c.date <= ? GROUP BY c.date "
+        "  UNION ALL "
+        "  SELECT date, COUNT(*) FROM synced_tasks "
+        "  WHERE user_id = ? AND done = 1 AND date >= ? AND date <= ? GROUP BY date"
+        ") hist_days GROUP BY day "
+        "UNION ALL "
+        "SELECT 'streak', CAST(NULL AS INTEGER), CAST(NULL AS TEXT), CAST(NULL AS INTEGER), CAST(NULL AS INTEGER), date, "
+        "       CAST(NULL AS TEXT), CAST(NULL AS TEXT), CAST(NULL AS TEXT) "
+        "FROM ("
+        "  SELECT DISTINCT c.date AS date FROM completions c JOIN goals g ON g.id = c.goal_id "
+        "  WHERE g.user_id = ? AND c.done = 1 AND c.date >= ? "
+        "  UNION "
+        "  SELECT DISTINCT date FROM synced_tasks WHERE user_id = ? AND done = 1 AND date >= ?"
+        ") streak_days",
+        (
+            today, user_id,
+            user_id, today,
+            user_id, start, today, user_id, start, today,
+            user_id, cutoff, user_id, cutoff,
+        ),
+    )
+    goal_rows = []
+    synced_rows = []
+    hist_counts = {}
+    streak_dates = set()
+    for row in rows:
+        kind = row["k"]
+        if kind == "goal":
+            goal_rows.append({"id": row["id"], "text": row["text"], "done": bool(row["n"]), "sort_order": row["sort_order"]})
+        elif kind == "task":
+            synced_rows.append({
+                "id": row["id"],
+                "external_id": row["external_id"],
+                "text": row["text"],
+                "time": row["time"] or "",
+                "task_type": row["task_type"] or "Task",
+                "done": bool(row["n"]),
+            })
+        elif kind == "hist" and row["day"]:
+            hist_counts[row["day"]] = _as_int(row["n"])
+        elif kind == "streak" and row["day"]:
+            streak_dates.add(row["day"])
+    goal_rows.sort(key=lambda item: (item["sort_order"] if item["sort_order"] is not None else 0, item["id"]))
+    synced_rows.sort(key=lambda item: (item["time"] or "", item["id"]))
+    for item in goal_rows:
+        item.pop("sort_order", None)
+    streak = compute_streak(db, user_id, done_dates=streak_dates)
     done_count = sum(1 for goal in goal_rows if goal["done"]) + sum(1 for task in synced_rows if task["done"])
-    total_count = len(goal_rows) + len(synced_rows)
+    digest = weekly_digest(db, user_id, streak=streak)
     return {
         "goals": goal_rows,
         "synced_tasks": synced_rows,
         "done_count": done_count,
-        "total_count": total_count,
-        "streak": compute_streak(db, user_id),
-        "today": today_str(),
+        "total_count": len(goal_rows) + len(synced_rows),
+        "streak": streak,
+        "today": today,
         "username": session.get("username"),
+        "history": _history_from_counts(hist_counts, len(goal_rows), lang, today),
+        "digest": digest,
     }
 
 
@@ -440,7 +582,14 @@ def owned_goal(db, user_id, goal_id):
 @login_required
 def index():
     db = get_db()
-    return render_template("index.html", state=current_state(db, session["user_id"]))
+    state = current_state(db, session["user_id"])
+    return render_template(
+        "index.html",
+        state=state,
+        history=state["history"],
+        digest=state["digest"],
+        show_digest=digest_visible(state["digest"]),
+    )
 
 
 @app.route("/sw.js")
@@ -460,20 +609,7 @@ def api_state():
 @app.route("/api/history")
 @login_required
 def api_history():
-    db = get_db()
-    user_id = session["user_id"]
-    total_goals = query_one(db, "SELECT COUNT(*) AS n FROM goals WHERE user_id = ?", (user_id,))["n"]
-    days = []
-    for offset in range(6, -1, -1):
-        day = (datetime.date.today() - datetime.timedelta(days=offset)).isoformat()
-        count = query_one(
-            db,
-            "SELECT COUNT(*) AS n FROM completions c JOIN goals g ON g.id = c.goal_id "
-            "WHERE g.user_id = ? AND c.date = ? AND c.done = 1",
-            (user_id, day),
-        )["n"]
-        days.append({"date": day, "count": count})
-    return jsonify({"days": days, "total_goals": total_goals})
+    return jsonify(history_payload(get_db(), session["user_id"], lang=getattr(g, "lang", None)))
 
 
 @app.route("/api/weekly-digest")
@@ -622,17 +758,7 @@ def api_toggle_synced_task(task_id):
     return jsonify(current_state(db, user_id))
 
 
-@app.route("/flashcards")
-@login_required
-def flashcards_page():
-    return render_template("flashcards.html")
-
-
-@app.route("/api/cards", methods=["GET"])
-@login_required
-def api_cards():
-    db = get_db()
-    user_id = session["user_id"]
+def study_payload(db, user_id):
     cards = cards_for_user(db, user_id)
     due_today_ids, waiting_at, counts, settings = select_study_cards(cards, db, user_id)
     for card in cards:
@@ -641,7 +767,7 @@ def api_cards():
         card["previews"] = srs.button_previews(card)
     topics = sorted({card["topic"] for card in cards})
     due_count = sum(1 for card in cards if card["due_today"])
-    return jsonify({
+    return {
         "cards": cards,
         "topics": topics,
         "today": today_str(),
@@ -649,7 +775,19 @@ def api_cards():
         "settings": settings,
         "waiting_at": waiting_at,
         "due_count": due_count,
-    })
+    }
+
+
+@app.route("/flashcards")
+@login_required
+def flashcards_page():
+    return render_template("flashcards.html", cards_bootstrap=study_payload(get_db(), session["user_id"]))
+
+
+@app.route("/api/cards", methods=["GET"])
+@login_required
+def api_cards():
+    return jsonify(study_payload(get_db(), session["user_id"]))
 
 
 @app.route("/api/cards/pull-reviews", methods=["POST"])

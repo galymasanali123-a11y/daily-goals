@@ -23,12 +23,28 @@
 
 <div class="card">
   <h2>{{ t("last_7_days") }}</h2>
-  <div id="history-strip" class="history-strip"></div>
+  <div id="history-strip" class="history-strip">
+    {% for day in history.days %}
+      <div class="history-day" title="{{ t('history_done', date=day.date, count=day.count) }}">
+        <div class="history-bar{% if day.count %} has-activity{% endif %}{% if day.date == state.today %} is-today{% endif %}" style="height: {{ day.height }}%;"></div>
+        <div class="history-label">{{ day.label }}</div>
+      </div>
+    {% endfor %}
+  </div>
 </div>
 
-<div class="card" id="digest-card" style="display:none;">
+<div class="card" id="digest-card"{% if not show_digest %} hidden{% endif %}>
   <h2>{{ t("this_week") }}</h2>
-  <div id="digest-body"></div>
+  <div id="digest-body">
+    {% if show_digest %}
+      <div class="digest-row"><span>{{ t("day_streak") }}</span><span class="digest-value">🔥 {{ digest.streak }}</span></div>
+      <div class="digest-row"><span>{{ t("goals_completed") }}</span><span class="digest-value">{{ digest.goals_completed }}</span></div>
+      <div class="digest-row"><span>{{ t("flashcards_reviewed") }}</span><span class="digest-value">{{ digest.reviews_completed }}</span></div>
+      {% if digest.weakest_topic %}
+        <div class="digest-weak-topic">{{ t("weakest_topic", topic=digest.weakest_topic.topic, ease=digest.weakest_topic.avg_ease) }}</div>
+      {% endif %}
+    {% endif %}
+  </div>
 </div>
 
 {% if state.synced_tasks %}

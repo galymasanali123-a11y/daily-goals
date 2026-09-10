@@ -13,9 +13,15 @@
   const toast = document.getElementById("toast");
   if (!goalsList || !addForm) return;
 
+  let pageAlive = true;
+  function onPage() {
+    return pageAlive && goalsList.isConnected;
+  }
+
   let editingId = null;
 
   function showToast(message) {
+    if (!onPage() || !toast || !message) return;
     toast.textContent = message;
     toast.classList.add("show");
     clearTimeout(showToast._t);
@@ -76,6 +82,7 @@
   }
 
   function renderState(state) {
+    if (!onPage() || !state) return;
     statDone.textContent = `${state.done_count}/${state.total_count}`;
     statStreak.textContent = `🔥 ${state.streak}`;
 
@@ -90,17 +97,42 @@
     if (syncedList && state.synced_tasks) {
       syncedList.innerHTML = state.synced_tasks.map(syncedRowHTML).join("");
     }
+
+    if (state.history) renderHistory(state.history);
+    if (state.digest) renderDigest(state.digest);
+    touchNavCache();
+  }
+
+  const WEEKDAYS = {
+    en: ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"],
+    ru: ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"],
+  };
+
+  function localToday() {
+    const now = new Date();
+    const month = String(now.getMonth() + 1).padStart(2, "0");
+    const day = String(now.getDate()).padStart(2, "0");
+    return `${now.getFullYear()}-${month}-${day}`;
+  }
+
+  function weekdayLabel(dateStr, fallback) {
+    if (fallback) return fallback;
+    const date = new Date(dateStr + "T00:00:00");
+    if (Number.isNaN(date.getTime())) return "";
+    const names = WEEKDAYS[window.LANG] || WEEKDAYS.en;
+    return names[(date.getDay() + 6) % 7];
   }
 
   function renderHistory(data) {
-    const maxCount = Math.max(data.total_goals, 1, ...data.days.map((day) => day.count));
-    const today = new Date().toISOString().slice(0, 10);
+    if (!historyStrip || !data || !data.days) return;
+    const maxCount = Math.max(data.total_goals || 1, 1, ...data.days.map((day) => day.count || 0));
+    const today = localToday();
     historyStrip.innerHTML = data.days
       .map((day) => {
-        const heightPct = Math.max(6, Math.round((day.count / maxCount) * 100));
+        const heightPct = day.height || Math.max(6, Math.round((day.count / maxCount) * 100));
         const isToday = day.date === today;
         const hasActivity = day.count > 0;
-        const label = new Date(day.date + "T00:00:00").toLocaleDateString(window.LANG === "ru" ? "ru-RU" : "en-US", { weekday: "short" }).slice(0, 2);
+        const label = weekdayLabel(day.date, day.label);
         return `
           <div class="history-day" title="${escapeHTML(t("history_done", { date: day.date, count: day.count }))}">
             <div class="history-bar ${hasActivity ? "has-activity" : ""} ${isToday ? "is-today" : ""}" style="height:${heightPct}%"></div>
@@ -112,7 +144,8 @@
 
   async function refreshHistory() {
     try {
-      renderHistory(await api("/api/history"));
+      const data = await api("/api/history");
+      if (onPage()) renderHistory(data);
     } catch (error) {
       // history is a nice-to-have; a silent failure here shouldn't block the rest of the app
     }
@@ -122,7 +155,7 @@
     if (!digestCard || !digestBody) return;
     const nothingYet = digest.streak === 0 && digest.goals_completed === 0 && digest.reviews_completed === 0 && !digest.weakest_topic;
     if (nothingYet) {
-      digestCard.style.display = "none";
+      digestCard.hidden = true;
       return;
     }
     let html = `
@@ -134,15 +167,11 @@
       html += `<div class="digest-weak-topic">${t("weakest_topic", { topic: escapeHTML(digest.weakest_topic.topic), ease: digest.weakest_topic.avg_ease })}</div>`;
     }
     digestBody.innerHTML = html;
-    digestCard.style.display = "";
+    digestCard.hidden = false;
   }
 
-  async function refreshDigest() {
-    try {
-      renderDigest(await api("/api/weekly-digest"));
-    } catch (error) {
-      // same as history -- nice-to-have, shouldn't block the rest of the page
-    }
+  function touchNavCache() {
+    if (typeof window.__DG_NAV_REMEMBER === "function") window.__DG_NAV_REMEMBER();
   }
 
   if (syncedList) {
@@ -151,7 +180,6 @@
       if (!row || !event.target.closest(".synced-toggle")) return;
       try {
         renderState(await api(`/api/synced-tasks/${row.dataset.id}/toggle`, { method: "POST" }));
-        refreshHistory();
       } catch (error) {
         showToast(error.message);
       }
@@ -167,7 +195,6 @@
       if (editingId === goalId) return;
       try {
         renderState(await api(`/api/toggle/${goalId}`, { method: "POST" }));
-        refreshHistory();
       } catch (error) {
         showToast(error.message);
       }
@@ -178,7 +205,6 @@
       if (!confirm(t("delete_goal_confirm"))) return;
       try {
         renderState(await api(`/api/goals/${goalId}/delete`, { method: "POST" }));
-        refreshHistory();
       } catch (error) {
         showToast(error.message);
       }
@@ -269,12 +295,22 @@
     try {
       renderState(await api("/api/goals", { method: "POST", body: JSON.stringify({ text }) }));
       addInput.value = "";
-      refreshHistory();
     } catch (error) {
       showToast(error.message);
     }
   });
 
-  refreshHistory();
-  refreshDigest();
+  if (historyStrip && historyStrip.children.length === 0) {
+    refreshHistory().then(function () {
+      if (onPage() && historyStrip) historyStrip.classList.add("is-ready");
+    });
+  } else if (historyStrip) {
+    window.setTimeout(function () {
+      if (onPage() && historyStrip) historyStrip.classList.add("is-ready");
+    }, 420);
+  }
+
+  window._pageCleanup = function () {
+    pageAlive = false;
+  };
 })();

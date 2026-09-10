@@ -237,7 +237,7 @@ def register_learn_routes(app, get_db, login_required):
         db = get_db()
         row = query_one(
             db,
-            "SELECT id, title, filename, content_type, size_bytes, content FROM synced_books "
+            "SELECT id, title, filename, content_type, size_bytes FROM synced_books "
             "WHERE id = ? AND user_id = ?",
             (book_id, session["user_id"]),
         )
@@ -246,7 +246,12 @@ def register_learn_routes(app, get_db, login_required):
         content_type = row["content_type"] or "application/octet-stream"
         text_body = None
         if content_type in {"text/plain", "text/markdown"}:
-            raw = bytes(row["content"] or b"")
+            blob = query_one(
+                db,
+                "SELECT content FROM synced_books WHERE id = ? AND user_id = ?",
+                (book_id, session["user_id"]),
+            )
+            raw = bytes((blob["content"] if blob else b"") or b"")
             text_body = raw.decode("utf-8", errors="replace")
         highlights = query_all(
             db,

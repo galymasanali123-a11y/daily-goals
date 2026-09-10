@@ -83,16 +83,20 @@ header.top h1 {
 body:not(.auth-page) .bottom-nav {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  position: sticky;
+  position: fixed;
+  left: 0;
+  right: 0;
   bottom: 0;
   width: 100%;
-  max-width: 980px;
-  margin: 0 auto;
-  background: color-mix(in srgb, var(--card-bg) 92%, transparent);
-  backdrop-filter: blur(14px);
+  max-width: none;
+  margin: 0;
+  background: color-mix(in srgb, var(--card-bg) 94%, transparent);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
   border-top: 1px solid var(--line);
-  padding: 6px 8px calc(8px + env(safe-area-inset-bottom));
-  z-index: 20;
+  padding: 4px 8px calc(8px + env(safe-area-inset-bottom, 0px));
+  z-index: 40;
+  transform: translateZ(0);
 }
 .bottom-nav a {
   text-align: center;
@@ -100,8 +104,15 @@ body:not(.auth-page) .bottom-nav {
   color: var(--text-muted);
   font-size: 0.72rem;
   font-weight: 650;
-  padding: 8px 4px;
+  min-height: 48px;
+  padding: 6px 4px;
   border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
 }
 .bottom-nav a span {
   display: block;
@@ -111,6 +122,11 @@ body:not(.auth-page) .bottom-nav {
 .bottom-nav a.active {
   color: var(--accent);
   background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+body.kb-open .bottom-nav {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(110%);
 }
 @media (min-width: 720px) {
   body:not(.auth-page) .bottom-nav { display: none; }
@@ -136,7 +152,10 @@ body:not(.auth-page) .bottom-nav {
   position: relative;
   overflow: hidden;
 }
-.course-card:hover { transform: translateY(-1px); }
+.course-card:hover { transform: none; }
+@media (hover: hover) and (pointer: fine) {
+  .course-card:hover { transform: translateY(-1px); }
+}
 .course-card .badge {
   width: 42px;
   height: 42px;
@@ -487,7 +506,7 @@ mark[data-color="blue"] { background: var(--blue); }
 button.primary:disabled { opacity: 0.55; cursor: default; }
 
 header.top .settings-link {
-  right: 56px;
+  right: 68px;
   text-decoration: none;
   color: #fff;
 }
@@ -524,15 +543,35 @@ header.top .settings-link {
 
 @media (max-width: 719px) {
   body:not(.auth-page) main {
-    padding-bottom: calc(96px + env(safe-area-inset-bottom));
+    padding-bottom: calc(var(--dock-h) + 24px + env(safe-area-inset-bottom, 0px));
   }
   .nav-tabs { display: none; }
 }
 
 html { touch-action: manipulation; }
-header.top { view-transition-name: app-header; }
+header.top { view-transition-name: none; }
 main { view-transition-name: app-main; }
-.bottom-nav { view-transition-name: app-dock; }
+.bottom-nav { view-transition-name: none; }
+html.standalone header.top,
+html.standalone main,
+html.standalone .bottom-nav {
+  view-transition-name: none;
+}
+body:not(.auth-page) .toast {
+  bottom: calc(var(--dock-h) + 12px + env(safe-area-inset-bottom, 0px));
+}
+body.kb-open .toast {
+  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+}
+html.standalone {
+  -webkit-tap-highlight-color: transparent;
+}
+html.standalone .bottom-nav a,
+html.standalone header.top {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
 
 #nav-progress {
   position: fixed;
@@ -592,9 +631,11 @@ button.primary,
     border-color 0.18s ease,
     opacity 0.18s ease;
 }
-.course-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 14px 32px rgba(28, 42, 51, 0.1);
+@media (hover: hover) and (pointer: fine) {
+  .course-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 14px 32px rgba(28, 42, 51, 0.1);
+  }
 }
 .course-card:active,
 .lesson-row:active,
@@ -607,9 +648,30 @@ button.primary:active,
   transform: scale(0.97);
 }
 .progress-line > span { transition: width 0.45s ease; }
-.card {
-  animation: dg-in 0.26s ease both;
+main.page-in .card {
+  animation: dg-in 0.2s ease both;
 }
+.history-bar {
+  transform-origin: center bottom;
+  animation: history-bar-in 0.34s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.history-day:nth-child(1) .history-bar { animation-delay: 0.02s; }
+.history-day:nth-child(2) .history-bar { animation-delay: 0.05s; }
+.history-day:nth-child(3) .history-bar { animation-delay: 0.08s; }
+.history-day:nth-child(4) .history-bar { animation-delay: 0.11s; }
+.history-day:nth-child(5) .history-bar { animation-delay: 0.14s; }
+.history-day:nth-child(6) .history-bar { animation-delay: 0.17s; }
+.history-day:nth-child(7) .history-bar { animation-delay: 0.2s; }
+@keyframes history-bar-in {
+  from { transform: scaleY(0.08); opacity: 0.35; }
+  to { transform: scaleY(1); opacity: 1; }
+}
+.history-bar.is-today {
+  background: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+.history-strip.is-ready .history-bar { animation: none; }
+#digest-card[hidden] { display: none !important; }
 main.page-in {
   animation: dg-in 0.2s ease both;
 }

@@ -8,8 +8,14 @@
   var busy = false;
   var queued = null;
   var progress = null;
-  var reduced =
-    window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  function phoneShell() {
+    return (
+      document.documentElement.classList.contains("standalone") ||
+      (window.matchMedia &&
+        (window.matchMedia("(display-mode: standalone)").matches ||
+          window.matchMedia("(max-width: 719px)").matches))
+    );
+  }
 
   function keyFromUrl(href) {
     var u = new URL(href, location.href);
@@ -22,6 +28,10 @@
     cache.set(key, { html: html, at: Date.now() });
     while (cache.size > MAX) cache.delete(cache.keys().next().value);
   }
+
+  window.__DG_NAV_REMEMBER = function (href) {
+    remember(href || location.href, document.documentElement.outerHTML);
+  };
 
   function cached(href) {
     var row = cache.get(keyFromUrl(href));
@@ -126,9 +136,7 @@
 
     var nextBottom = doc.querySelector(".bottom-nav");
     var bottom = document.querySelector(".bottom-nav");
-    if (nextBottom && bottom) {
-      bottom.innerHTML = nextBottom.innerHTML;
-    } else if (nextBottom && !bottom) {
+    if (nextBottom && !bottom) {
       var toast = document.getElementById("toast");
       document.body.insertBefore(nextBottom.cloneNode(true), toast);
     } else if (!nextBottom && bottom) {
@@ -137,6 +145,8 @@
 
     runScripts(doc);
     markActive(location.pathname);
+    var liveToast = document.getElementById("toast");
+    if (liveToast) liveToast.classList.remove("show");
   }
 
   function pull(href) {
@@ -166,7 +176,7 @@
       applyDoc(doc);
       if (!opts.silent) window.scrollTo(0, 0);
     };
-    if (!reduced && !opts.silent && document.startViewTransition) {
+    if (!reduced && !opts.silent && !phoneShell() && document.startViewTransition) {
       return document.startViewTransition(run).finished.catch(function () {});
     }
     run();
@@ -218,6 +228,7 @@
           finish();
           network
             .then(function (fresh) {
+              if (phoneShell()) return;
               if (keyFromUrl(fresh.url) !== keyFromUrl(location.href)) return;
               if (fresh.html === html) return;
               var active = document.activeElement;
@@ -264,6 +275,15 @@
     true
   );
 
+  document.addEventListener(
+    "pointerdown",
+    function (event) {
+      var anchor = event.target.closest && event.target.closest("a");
+      if (shouldCapture(anchor)) prefetch(anchor.href);
+    },
+    true
+  );
+
   window.addEventListener("popstate", function () {
     go(location.href, { pop: true });
   });
@@ -273,6 +293,25 @@
   } catch (err) {}
   remember(location.href, document.documentElement.outerHTML);
 
+  function syncKeyboard() {
+    var vv = window.visualViewport;
+    if (!vv) return;
+    var covered = window.innerHeight - vv.height - vv.offsetTop;
+    document.body.classList.toggle("kb-open", covered > 80);
+  }
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener("resize", syncKeyboard);
+    window.visualViewport.addEventListener("scroll", syncKeyboard);
+  }
+  window.addEventListener("focusin", function (event) {
+    if (event.target && /^(INPUT|TEXTAREA|SELECT)$/.test(event.target.tagName)) {
+      document.body.classList.add("kb-open");
+    }
+  });
+  window.addEventListener("focusout", function () {
+    setTimeout(syncKeyboard, 80);
+  });
+
   if (!document.body.classList.contains("auth-page")) {
     var tabs = ["/", "/learn", "/flashcards", "/books"];
     var warm = function () {
@@ -280,7 +319,7 @@
         if (path !== location.pathname) prefetch(path);
       });
     };
-    if (window.requestIdleCallback) requestIdleCallback(warm, { timeout: 900 });
-    else setTimeout(warm, 280);
+    if (window.requestIdleCallback) requestIdleCallback(warm, { timeout: 400 });
+    else setTimeout(warm, 60);
   }
 })();
