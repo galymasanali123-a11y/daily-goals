@@ -27,6 +27,7 @@ from prefs import load_user_lang, save_user_lang
 import srs
 
 SECRET_KEY = os.environ.get("SECRET_KEY", "dev-secret-change-in-production")
+ASSET_VERSION = "7"
 STATIC_DIR = Path(__file__).parent / "static"
 SHARED_DECKS_DIR = Path(__file__).parent / "shared_decks"
 # A fixed allowlist (code -> filename, label) rather than resolving user input straight to a
@@ -62,6 +63,7 @@ def inject_layout():
         "t": t,
         "lang": lang,
         "i18n_catalog": catalog_for(lang),
+        "asset_v": ASSET_VERSION,
     }
 # Sessions are marked permanent on login/register (session.permanent = True) -- without this,
 # Flask's default permanent-session lifetime is only 31 days, which reads as "randomly signed
@@ -337,6 +339,23 @@ WEEKDAY_LABELS = {
     "en": ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"],
     "ru": ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"],
 }
+WEEKDAY_FULL = {
+    "en": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"],
+    "ru": ["понедельник", "вторник", "среда", "четверг", "пятница", "суббота", "воскресенье"],
+}
+MONTHS_FULL = {
+    "en": ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"],
+    "ru": ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"],
+}
+
+
+def friendly_today(iso_date, lang="en"):
+    day = datetime.date.fromisoformat(iso_date)
+    names = WEEKDAY_FULL.get(lang) or WEEKDAY_FULL["en"]
+    months = MONTHS_FULL.get(lang) or MONTHS_FULL["en"]
+    if lang == "ru":
+        return f"{names[day.weekday()]}, {day.day} {months[day.month - 1]}"
+    return f"{names[day.weekday()]}, {day.day} {months[day.month - 1]}"
 
 
 def _as_int(value, default=0):
@@ -567,6 +586,7 @@ def current_state(db, user_id):
         "total_count": len(goal_rows) + len(synced_rows),
         "streak": streak,
         "today": today,
+        "today_label": friendly_today(today, lang),
         "username": session.get("username"),
         "history": _history_from_counts(hist_counts, len(goal_rows), lang, today),
         "digest": digest,
@@ -767,6 +787,10 @@ def study_payload(db, user_id):
         card["previews"] = srs.button_previews(card)
     topics = sorted({card["topic"] for card in cards})
     due_count = sum(1 for card in cards if card["due_today"])
+    try:
+        decks = catalog.decks_payload(db, user_id)
+    except Exception:
+        decks = []
     return {
         "cards": cards,
         "topics": topics,
@@ -775,6 +799,7 @@ def study_payload(db, user_id):
         "settings": settings,
         "waiting_at": waiting_at,
         "due_count": due_count,
+        "decks": decks,
     }
 
 
@@ -915,6 +940,56 @@ def api_import_shared_deck():
     return jsonify({"card_count": len(cards), "label": label})
 
 
+@app.route("/api/catalog/decks/<deck_id>/download", methods=["POST"])
+@login_required
+def api_catalog_download_deck(deck_id):
+    result = catalog.download_deck(get_db(), session["user_id"], deck_id)
+    if not result:
+        return jsonify({"error": t("err_not_found")}), 404
+    return jsonify(result)
+
+
+@app.route("/api/catalog/decks/<deck_id>", methods=["DELETE"])
+@login_required
+def api_catalog_delete_deck(deck_id):
+    result = catalog.delete_deck(get_db(), session["user_id"], deck_id)
+    if not result:
+        return jsonify({"error": t("err_not_found")}), 404
+    return jsonify(result)
+
+
+@app.route("/api/cards/<int:card_id>/restore", methods=["POST"])
+@login_required
+def api_card_restore(card_id):
+    payload = request.get_json(silent=True) or {}
+    db = get_db()
+    user_id = session["user_id"]
+    row = query_one(db, "SELECT * FROM synced_cards WHERE id = ? AND user_id = ?", (card_id, user_id))
+    if not row:
+        return jsonify({"error": t("err_not_found")}), 404
+    due = str(payload.get("due") or row["due"])
+    interval = int(payload.get("interval") or 0)
+    ease = float(payload.get("ease") or srs.STARTING_EASE)
+    reps = int(payload.get("reps") or 0)
+    lapses = int(payload.get("lapses") or 0)
+    queue = int(payload.get("queue") if payload.get("queue") is not None else srs.infer_queue(card_row_to_dict(row)))
+    due_at = str(payload.get("due_at") or "")
+    learn_step = int(payload.get("learn_step") or 0)
+    db.execute(
+        "UPDATE synced_cards SET due = ?, interval = ?, ease = ?, reps = ?, lapses = ?, "
+        "queue = ?, due_at = ?, learn_step = ? WHERE id = ?",
+        (due, interval, ease, reps, lapses, queue, due_at, learn_step, card_id),
+    )
+    last = query_one(
+        db,
+        "SELECT id FROM card_review_events WHERE user_id = ? AND external_id = ? ORDER BY id DESC LIMIT 1",
+        (user_id, row["external_id"]),
+    )
+    if last:
+        db.execute("DELETE FROM card_review_events WHERE id = ?", (last["id"],))
+    return jsonify({"ok": True})
+
+
 @app.route("/api/cards/<int:card_id>/review", methods=["POST"])
 @login_required
 def api_card_review(card_id):
@@ -1006,7 +1081,11 @@ def books_page():
         }
         for row in rows
     ]
-    return render_template("books.html", books=books)
+    try:
+        catalog_books = catalog.books_payload(db, session["user_id"])
+    except Exception:
+        catalog_books = []
+    return render_template("books.html", books=books, catalog_books=catalog_books)
 
 
 @app.route("/api/books", methods=["GET"])
@@ -1084,6 +1163,56 @@ def api_books_finalize_sync():
             db.execute("DELETE FROM synced_books WHERE id = ?", (row["id"],))
             dropped += 1
     return jsonify({"dropped": dropped})
+
+
+@app.route("/api/catalog/books/<book_id>/download", methods=["POST"])
+@login_required
+def api_catalog_download_book(book_id):
+    result = catalog.download_book(get_db(), session["user_id"], book_id)
+    if not result:
+        return jsonify({"error": t("err_not_found")}), 404
+    return jsonify(result)
+
+
+@app.route("/api/books/<int:book_id>", methods=["DELETE"])
+@login_required
+def api_delete_book(book_id):
+    db = get_db()
+    row = query_one(
+        db, "SELECT id FROM synced_books WHERE id = ? AND user_id = ?", (book_id, session["user_id"])
+    )
+    if not row:
+        return jsonify({"error": t("err_not_found")}), 404
+    db.execute("DELETE FROM book_highlights WHERE book_id = ? AND user_id = ?", (book_id, session["user_id"]))
+    db.execute("DELETE FROM synced_books WHERE id = ?", (book_id,))
+    return jsonify({"ok": True})
+
+
+@app.route("/api/books/from-phone", methods=["POST"])
+@login_required
+def api_books_from_phone():
+    uploaded = request.files.get("file")
+    if not uploaded or not uploaded.filename:
+        return jsonify({"error": t("unsupported_file")}), 400
+    filename = secure_filename(uploaded.filename)
+    ext = Path(filename).suffix.lower()
+    content_type = PHONE_BOOK_TYPES.get(ext)
+    if not content_type:
+        return jsonify({"error": t("unsupported_file")}), 400
+    content = uploaded.read()
+    if not content:
+        return jsonify({"error": t("unsupported_file")}), 400
+    if len(content) > PHONE_BOOK_SIZE:
+        return jsonify({"error": t("book_too_big")}), 413
+    title = (request.form.get("title") or Path(filename).stem or "Book").strip()[:200]
+    external_id = f"phone:{uuid.uuid4().hex}"
+    inserted = query_one(
+        get_db(),
+        "INSERT INTO synced_books (user_id, external_id, title, filename, content_type, size_bytes, content, source) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, 'phone') RETURNING id",
+        (session["user_id"], external_id, title, filename, content_type, len(content), content),
+    )
+    return jsonify({"id": inserted["id"], "title": title})
 
 
 @app.route("/books/<int:book_id>/file")

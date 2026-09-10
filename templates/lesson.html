@@ -5,14 +5,19 @@
 
 <div class="back-row">
   <a class="ghost-link" href="{{ url_for('course_page', course_slug=course.slug) }}">← {{ course.title }} / {{ level.short }}</a>
-  <a class="ghost-link" href="{{ url_for('lesson_page', course_slug=course.slug, level_slug=level.slug, lesson_slug=lesson.slug) }}" target="_blank" rel="noopener">{{ t("open_separately") }} ↗</a>
 </div>
 
 <p class="page-kicker">{{ level.title }}</p>
 <h2 class="page-title">{{ lesson.title }}</h2>
 <p class="page-lead">{{ lesson.summary }} · {{ t("about_minutes", n=lesson.minutes) }}</p>
 
-<div class="lesson-layout">
+<div class="step-tabs" id="step-tabs">
+  <button type="button" class="topic-chip" data-step="0">{{ t("step_grammar") }}</button>
+  <button type="button" class="topic-chip" data-step="1">{{ t("step_words") }}</button>
+  <button type="button" class="topic-chip" data-step="2">{{ t("step_practice") }}</button>
+</div>
+
+<div class="lesson-step" data-step-panel="0">
   <div class="card">
     <h2>{{ t("grammar") }}</h2>
     <div class="lesson-prose">{{ body_html }}</div>
@@ -20,74 +25,75 @@
       {{ t("already_read") if progress.grammar_done else t("mark_read") }}
     </button>
   </div>
+</div>
 
-  <div>
-    <div class="card">
-      <h2>{{ t("lesson_progress") }}</h2>
-      <div class="checklist">
-        <div class="check-item {% if progress.grammar_done %}done{% endif %}">{{ t("grammar") }} <span>{{ t("done") if progress.grammar_done else t("not_yet") }}</span></div>
-        <div class="check-item {% if progress.cards_added %}done{% endif %}">{{ t("words_in_deck") }} <span>{{ t("done") if progress.cards_added else t("not_yet") }}</span></div>
-        <div class="check-item {% if progress.exercises_total %}done{% endif %}">{{ t("exercises") }} <span>{{ progress.exercises_correct }}/{{ lesson.exercises|length }}</span></div>
-      </div>
-      {% if finished %}
-        <p class="sync-note">{{ t("lesson_complete") }}</p>
-      {% endif %}
+<div class="lesson-step" data-step-panel="1" hidden>
+  <div class="card">
+    <h2>{{ t("words_heading", n=lesson.vocab|length) }}</h2>
+    <div class="vocab-list">
+      {% for word in lesson.vocab %}
+        <div class="vocab-item">
+          <span class="front">{{ word.front }}</span>
+          <span class="back">{{ word.back }}</span>
+          {% if word.example %}<span class="ex">{{ word.example }}</span>{% endif %}
+        </div>
+      {% endfor %}
     </div>
-
-    <div class="card">
-      <h2>{{ t("words_heading", n=lesson.vocab|length) }}</h2>
-      <div class="vocab-list">
-        {% for word in lesson.vocab %}
-          <div class="vocab-item">
-            <span class="front">{{ word.front }}</span>
-            <span class="back">{{ word.back }}</span>
-            {% if word.example %}<span class="ex">{{ word.example }}</span>{% endif %}
-          </div>
-        {% endfor %}
-      </div>
-      <div style="display:flex; gap:8px; margin-top:12px; flex-wrap:wrap;">
-        <button type="button" class="primary" id="add-cards">{{ t("add_to_cards") }}</button>
-        <a class="ghost-link" href="{{ url_for('flashcards_page') }}?topic={{ topic|urlencode }}">{{ t("study_words") }} →</a>
-      </div>
+    <div style="display:flex; gap:8px; margin-top:12px; flex-wrap:wrap;">
+      <button type="button" class="primary" id="add-cards" {% if progress.cards_added %}disabled{% endif %}>
+        {{ t("already_in_deck") if progress.cards_added else t("add_to_cards") }}
+      </button>
+      <a class="ghost-link" href="{{ url_for('flashcards_page') }}?topic={{ topic|urlencode }}">{{ t("study_words") }} →</a>
     </div>
   </div>
 </div>
 
-<div class="card" id="practice-card">
-  <h2>{{ t("exercises") }}</h2>
-  <form id="exercise-form">
-    {% for exercise in lesson.exercises %}
-      <div class="exercise" data-index="{{ loop.index0 }}">
-        <div class="prompt">{{ loop.index }}. {{ exercise.prompt }}</div>
-        {% if exercise.type == 'fill' %}
-          <input type="text" name="{{ loop.index0 }}" value="{{ progress.answers.get(loop.index0|string, '') }}" autocomplete="off">
-        {% else %}
-          <div class="choices">
-            {% for option in exercise.options %}
-              <label>
-                <input type="radio" name="{{ loop.index0 }}" value="{{ option }}"
-                       {% if progress.answers.get(loop.index0|string) == option %}checked{% endif %}>
-                {{ option }}
-              </label>
-            {% endfor %}
-          </div>
-        {% endif %}
-        <div class="explain" hidden></div>
-      </div>
-    {% endfor %}
-    <button type="submit" class="primary">{{ t("check") }}</button>
-  </form>
+<div class="lesson-step" data-step-panel="2" hidden>
+  <div class="card" id="practice-card">
+    <h2>{{ t("exercises") }}</h2>
+    <form id="exercise-form">
+      {% for exercise in lesson.exercises %}
+        <div class="exercise" data-index="{{ loop.index0 }}" {% if not loop.first %}hidden{% endif %}>
+          <div class="prompt">{{ loop.index }}. {{ exercise.prompt }}</div>
+          {% if exercise.type == 'fill' %}
+            <input type="text" name="{{ loop.index0 }}" value="{{ progress.answers.get(loop.index0|string, '') }}" autocomplete="off">
+          {% else %}
+            <div class="choices">
+              {% for option in exercise.options %}
+                <label>
+                  <input type="radio" name="{{ loop.index0 }}" value="{{ option }}"
+                         {% if progress.answers.get(loop.index0|string) == option %}checked{% endif %}>
+                  {{ option }}
+                </label>
+              {% endfor %}
+            </div>
+          {% endif %}
+          <div class="explain" hidden></div>
+        </div>
+      {% endfor %}
+      <button type="submit" class="primary">{{ t("check") }}</button>
+    </form>
+  </div>
+</div>
+
+<div class="card">
+  <h2>{{ t("lesson_progress") }}</h2>
+  <div class="checklist">
+    <div class="check-item {% if progress.grammar_done %}done{% endif %}">{{ t("grammar") }} <span>{{ t("done") if progress.grammar_done else t("not_yet") }}</span></div>
+    <div class="check-item {% if progress.cards_added %}done{% endif %}">{{ t("words_in_deck") }} <span>{{ t("done") if progress.cards_added else t("not_yet") }}</span></div>
+    <div class="check-item {% if progress.exercises_total %}done{% endif %}" id="exercise-check">{{ t("exercises") }} <span id="exercise-score">{{ progress.exercises_correct }}/{{ lesson.exercises|length }}</span></div>
+  </div>
+  {% if finished %}
+    <p class="sync-note">{{ t("lesson_complete") }}</p>
+  {% endif %}
 </div>
 
 <div class="lesson-nav">
-  {% if neighbors.prev %}
-    <a class="ghost-link" href="{{ url_for('lesson_page', course_slug=course.slug, level_slug=level.slug, lesson_slug=neighbors.prev.slug) }}">← {{ neighbors.prev.title }}</a>
-  {% else %}
-    <span></span>
-  {% endif %}
+  <button type="button" class="ghost-link" id="prev-step">{{ t("prev_step") }}</button>
   {% if neighbors.next %}
-    <a class="ghost-link" href="{{ url_for('lesson_page', course_slug=course.slug, level_slug=level.slug, lesson_slug=neighbors.next.slug) }}">{{ neighbors.next.title }} →</a>
+    <a class="primary next-lesson-btn" id="next-lesson" href="{{ url_for('lesson_page', course_slug=course.slug, level_slug=level.slug, lesson_slug=neighbors.next.slug) }}" {% if not finished %}hidden{% endif %}>{{ t("next_lesson") }}</a>
   {% endif %}
+  <button type="button" class="primary" id="next-step">{{ t("next_step") }}</button>
 </div>
 {% endblock %}
 {% block scripts %}
@@ -95,8 +101,10 @@
   window.LESSON = {
     grammarUrl: {{ url_for('api_lesson_grammar', course_slug=course.slug, level_slug=level.slug, lesson_slug=lesson.slug)|tojson }},
     cardsUrl: {{ url_for('api_lesson_cards', course_slug=course.slug, level_slug=level.slug, lesson_slug=lesson.slug)|tojson }},
-    exercisesUrl: {{ url_for('api_lesson_exercises', course_slug=course.slug, level_slug=level.slug, lesson_slug=lesson.slug)|tojson }}
+    exercisesUrl: {{ url_for('api_lesson_exercises', course_slug=course.slug, level_slug=level.slug, lesson_slug=lesson.slug)|tojson }},
+    startStep: {{ 2 if progress.exercises_total else (1 if progress.grammar_done else 0) }},
+    cardsAdded: {{ 1 if progress.cards_added else 0 }}
   };
 </script>
-<script src="{{ url_for('static', filename='lesson.js') }}"></script>
+<script src="{{ url_for('static', filename='lesson.js') }}?v={{ asset_v }}"></script>
 {% endblock %}

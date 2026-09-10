@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block subtitle %}<span id="today-label">{{ state.today }}</span>{% endblock %}
+{% block subtitle %}<span id="today-label">{{ state.today_label or state.today }}</span>{% endblock %}
 {% block content %}
 
 {% include "_nav.html" %}
@@ -15,41 +15,9 @@
   </div>
 </div>
 
-<a class="course-card" href="{{ url_for('learn_page') }}" style="margin-bottom:16px;">
-  <div class="badge" style="background:var(--accent)">A</div>
-  <h2>{{ t("learn_teaser_title") }}</h2>
-  <p>{{ t("learn_teaser_body") }}</p>
-</a>
-
-<div class="card">
-  <h2>{{ t("last_7_days") }}</h2>
-  <div id="history-strip" class="history-strip">
-    {% for day in history.days %}
-      <div class="history-day" title="{{ t('history_done', date=day.date, count=day.count) }}">
-        <div class="history-bar{% if day.count %} has-activity{% endif %}{% if day.date == state.today %} is-today{% endif %}" style="height: {{ day.height }}%;"></div>
-        <div class="history-label">{{ day.label }}</div>
-      </div>
-    {% endfor %}
-  </div>
-</div>
-
-<div class="card" id="digest-card"{% if not show_digest %} hidden{% endif %}>
-  <h2>{{ t("this_week") }}</h2>
-  <div id="digest-body">
-    {% if show_digest %}
-      <div class="digest-row"><span>{{ t("day_streak") }}</span><span class="digest-value">🔥 {{ digest.streak }}</span></div>
-      <div class="digest-row"><span>{{ t("goals_completed") }}</span><span class="digest-value">{{ digest.goals_completed }}</span></div>
-      <div class="digest-row"><span>{{ t("flashcards_reviewed") }}</span><span class="digest-value">{{ digest.reviews_completed }}</span></div>
-      {% if digest.weakest_topic %}
-        <div class="digest-weak-topic">{{ t("weakest_topic", topic=digest.weakest_topic.topic, ease=digest.weakest_topic.avg_ease) }}</div>
-      {% endif %}
-    {% endif %}
-  </div>
-</div>
-
 {% if state.synced_tasks %}
 <div class="card" id="synced-card">
-  <h2>🖥️ {{ t("planner_title") }}</h2>
+  <h2>{{ t("planner_title") }}</h2>
   <div id="synced-list">
     {% for task in state.synced_tasks %}
       <div class="goal-row synced-row" data-id="{{ task.id }}">
@@ -60,13 +28,15 @@
       </div>
     {% endfor %}
   </div>
-  <p class="sync-note">{{ t("planner_note") }}</p>
 </div>
 {% endif %}
 
 <div class="card">
-  <h2>{{ t("todays_goals") }}</h2>
-  <div id="goals-list">
+  <div class="card-head">
+    <h2>{{ t("todays_goals") }}</h2>
+    <button type="button" class="ghost-link" id="reorder-toggle">{{ t("reorder") }}</button>
+  </div>
+  <div id="goals-list" class="goals-list">
     {% if not state.goals %}
       <div class="empty-state" id="empty-state">{{ t("no_goals") }}</div>
     {% endif %}
@@ -85,19 +55,41 @@
       </div>
     {% endfor %}
   </div>
-</div>
-
-<div class="card">
-  <h2>{{ t("add_a_goal") }}</h2>
+  <p class="empty-state" id="all-done-today" hidden>{{ t("all_done_today") }}</p>
   <form class="add-goal" id="add-goal-form">
     <input type="text" name="text" id="add-goal-input" placeholder="{{ t('goal_placeholder') }}" required>
     <button type="submit" class="primary">{{ t("add") }}</button>
   </form>
 </div>
 
-<a class="muted-link" href="{{ url_for('logout') }}">{{ t("signed_in_as", name=state.username) }}</a>
+<details class="card stats-fold">
+  <summary>{{ t("stats") }}</summary>
+  <h2>{{ t("last_7_days") }}</h2>
+  <div id="history-strip" class="history-strip">
+    {% for day in history.days %}
+      <div class="history-day" title="{{ t('history_done', date=day.date, count=day.count) }}">
+        <div class="history-bar{% if day.count %} has-activity{% endif %}{% if day.date == state.today %} is-today{% endif %}" style="height: {{ day.height }}%;"></div>
+        <div class="history-label">{{ day.label }}</div>
+      </div>
+    {% endfor %}
+  </div>
+  <div id="digest-card"{% if not show_digest %} hidden{% endif %}>
+    <h2>{{ t("this_week") }}</h2>
+    <div id="digest-body">
+      {% if show_digest %}
+        <div class="digest-row"><span>{{ t("day_streak") }}</span><span class="digest-value">🔥 {{ digest.streak }}</span></div>
+        <div class="digest-row"><span>{{ t("goals_completed") }}</span><span class="digest-value">{{ digest.goals_completed }}</span></div>
+        <div class="digest-row"><span>{{ t("flashcards_reviewed") }}</span><span class="digest-value">{{ digest.reviews_completed }}</span></div>
+        {% if digest.weakest_topic %}
+          <div class="digest-weak-topic">{{ t("weakest_topic", topic=digest.weakest_topic.topic, ease=digest.weakest_topic.avg_ease) }}</div>
+        {% endif %}
+      {% endif %}
+    </div>
+  </div>
+</details>
 
 {% endblock %}
 {% block scripts %}
-<script src="{{ url_for('static', filename='app.js') }}"></script>
+<script type="application/json" id="goals-bootstrap">{{ state | tojson }}</script>
+<script src="{{ url_for('static', filename='app.js') }}?v={{ asset_v }}"></script>
 {% endblock %}

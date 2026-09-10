@@ -3,10 +3,6 @@
 {% block content %}
 <div class="back-row">
   <a class="ghost-link" href="{{ url_for('books_page') }}">← {{ t("library_back") }}</a>
-  <div>
-    <a class="ghost-link" href="{{ url_for('book_reader', book_id=book.id) }}" target="_blank" rel="noopener">{{ t("open_separately") }} ↗</a>
-    <a class="ghost-link" href="{{ book.file_url }}" target="_blank" rel="noopener">{{ t("file") }} ↗</a>
-  </div>
 </div>
 
 <p class="page-kicker">{{ t("reader") }}</p>
@@ -21,17 +17,21 @@
         <button type="button" class="swatch green" data-color="green" title="{{ t('color_green') }}"></button>
         <button type="button" class="swatch pink" data-color="pink" title="{{ t('color_pink') }}"></button>
         <button type="button" class="swatch blue" data-color="blue" title="{{ t('color_blue') }}"></button>
+        <button type="button" class="primary" id="apply-highlight">{{ t("highlight_apply") }}</button>
       </div>
       <article class="reader-page" id="reader-text">{{ text_body }}</article>
     {% elif book.is_pdf %}
       <p class="sync-note">{{ t("pdf_hint") }}</p>
-      <iframe class="pdf-frame" src="{{ book.file_url }}" title="{{ book.title }}"></iframe>
+      <p><a class="primary" style="display:inline-block" href="{{ book.file_url }}" target="_blank" rel="noopener">{{ t("pdf_open") }}</a></p>
+      <object class="pdf-frame" data="{{ book.file_url }}" type="application/pdf">
+        <p><a class="ghost-link" href="{{ book.file_url }}" target="_blank" rel="noopener">{{ t("pdf_open") }}</a></p>
+      </object>
     {% else %}
       <div class="card empty-state">{{ t("download_better") }}</div>
       <p><a class="ghost-link" href="{{ book.file_url }}" download="{{ book.filename }}">{{ t("download", name=book.filename) }}</a></p>
     {% endif %}
   </div>
-  <aside class="card">
+  <aside class="card reader-notes">
     <h2>{{ t("markers") }}</h2>
     {% if not book.is_text %}
       <form id="note-form" class="add-goal" style="flex-direction:column; align-items:stretch;">
@@ -58,5 +58,5 @@
     highlights: {{ highlights | tojson }}
   };
 </script>
-<script src="{{ url_for('static', filename='reader.js') }}"></script>
+<script src="{{ url_for('static', filename='reader.js') }}?v={{ asset_v }}"></script>
 {% endblock %}

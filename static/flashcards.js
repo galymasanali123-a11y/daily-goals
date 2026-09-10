@@ -4,9 +4,6 @@
   const topicToggle = document.getElementById("topic-toggle");
   const topicFilter = document.getElementById("topic-filter");
   const emptyCards = document.getElementById("empty-cards");
-  const importDeckCard = document.getElementById("import-deck-card");
-  const importDeckForm = document.getElementById("import-deck-form");
-  const importDeckCode = document.getElementById("import-deck-code");
   const allCaughtUp = document.getElementById("all-caught-up");
   const studyArea = document.getElementById("study-area");
   const studyProgress = document.getElementById("study-progress");
@@ -14,12 +11,13 @@
   const studyQuestion = document.getElementById("study-question");
   const studyAnswer = document.getElementById("study-answer");
   const studyExample = document.getElementById("study-example");
+  const studyCard = document.getElementById("study-card");
   const revealBtn = document.getElementById("reveal-btn");
   const studyActions = document.getElementById("study-actions");
+  const undoBtn = document.getElementById("undo-review");
   const toast = document.getElementById("toast");
   const countsBox = document.getElementById("anki-counts");
-  const srsForm = document.getElementById("srs-form");
-  const enableNotify = document.getElementById("enable-notify");
+  const deckList = document.getElementById("deck-list");
   if (!revealBtn || !studyActions) return;
 
   let pageAlive = true;
@@ -29,13 +27,14 @@
 
   const params = new URLSearchParams(window.location.search);
   let allCards = [];
+  let decks = [];
   let selectedTopic = params.get("topic") || "All";
   let queue = [];
   let queueTotal = 0;
   let revealed = false;
   let topicFilterExpanded = false;
-  let settings = { new_per_day: 20, reviews_per_day: 200, notify_enabled: 1, notify_hour: 9 };
-  let wakeTimer = null;
+  let lastReview = null;
+  let busy = false;
 
   function showToast(message) {
     if (!onPage() || !toast || !message) return;
@@ -68,15 +67,13 @@
   }
 
   function topicLabel(topic) {
-    return topic === "All" ? t("topic_all") : topic;
+    return topic === "All" ? t("topic_all") : String(topic).replace(/_/g, " ");
   }
 
   function renderTopicFilter(topics) {
     if (!onPage() || !topicFilter) return;
     const chips = ["All", ...topics];
-    if (selectedTopic !== "All" && !topics.includes(selectedTopic)) {
-      chips.push(selectedTopic);
-    }
+    if (selectedTopic !== "All" && !topics.includes(selectedTopic)) chips.push(selectedTopic);
     topicFilter.innerHTML = chips
       .map((topic) => `<span class="topic-chip ${topic === selectedTopic ? "active" : ""}" data-topic="${escapeHTML(topic)}">${escapeHTML(topicLabel(topic))}</span>`)
       .join("");
@@ -96,11 +93,8 @@
   }
 
   if (topicToggle) {
-    topicToggle.addEventListener("click", () => {
-      setTopicFilterExpanded(!topicFilterExpanded);
-    });
+    topicToggle.addEventListener("click", () => setTopicFilterExpanded(!topicFilterExpanded));
   }
-
   if (topicFilter) {
     topicFilter.addEventListener("click", (event) => {
       const chip = event.target.closest(".topic-chip");
@@ -131,54 +125,33 @@
     });
   }
 
-  function fillSettings(data) {
-    if (!data) return;
-    settings = { ...settings, ...data };
-    const newInput = document.getElementById("new-per-day");
-    const reviewInput = document.getElementById("reviews-per-day");
-    const hourInput = document.getElementById("notify-hour");
-    const notifySelect = document.getElementById("notify-enabled");
-    if (newInput) newInput.value = settings.new_per_day;
-    if (reviewInput) reviewInput.value = settings.reviews_per_day;
-    if (hourInput) hourInput.value = settings.notify_hour;
-    if (notifySelect) notifySelect.value = String(settings.notify_enabled);
-  }
-
-  function maybeNotify(dueCount) {
-    if (!dueCount || !settings.notify_enabled) return;
-    const today = new Date().toISOString().slice(0, 10);
-    try {
-      if (localStorage.getItem("card-nudge-date") === today) return;
-    } catch (error) {}
-    const hour = new Date().getHours();
-    if (hour < Number(settings.notify_hour || 0)) return;
-    if (!("Notification" in window) || Notification.permission !== "granted") return;
-    try {
-      new Notification(t("notify_title"), {
-        body: t("notify_body", { n: dueCount }),
-        icon: "/static/icons/icon-192.png",
-      });
-      localStorage.setItem("card-nudge-date", today);
-    } catch (error) {}
-  }
-
-  function scheduleWake(waitingAt) {
-    clearTimeout(wakeTimer);
-    if (!waitingAt || !waitingAt.length) return;
-    const soonest = waitingAt
-      .map((value) => new Date(value).getTime())
-      .filter((value) => !Number.isNaN(value))
-      .sort((a, b) => a - b)[0];
-    if (!soonest) return;
-    const delay = Math.max(1000, soonest - Date.now() + 400);
-    wakeTimer = setTimeout(() => {
-      if (onPage()) load();
-    }, Math.min(delay, 10 * 60 * 1000));
+  function renderDecks() {
+    if (!deckList) return;
+    if (!decks.length) {
+      deckList.innerHTML = "";
+      return;
+    }
+    deckList.innerHTML = decks
+      .map((deck) => {
+        const action = deck.downloaded
+          ? `<button type="button" class="ghost-link deck-remove" data-id="${escapeHTML(deck.id)}">${t("remove_deck")}</button>`
+          : `<button type="button" class="primary deck-download" data-id="${escapeHTML(deck.id)}">${t("download_deck")}</button>`;
+        const badge = deck.downloaded ? `<span class="book-meta">${t("downloaded")}</span>` : `<span class="book-meta">${t("cards_count", { n: deck.card_count })}</span>`;
+        return `<div class="catalog-row" data-id="${escapeHTML(deck.id)}">
+          <div>
+            <strong>${escapeHTML(deck.title)}</strong>
+            <p>${escapeHTML(deck.blurb)}</p>
+            ${badge}
+          </div>
+          ${action}
+        </div>`;
+      })
+      .join("");
   }
 
   function buildQueue() {
     const dueCards = allCards.filter((card) => card.due_today);
-    queue = selectedTopic === "All" ? dueCards : dueCards.filter((card) => card.topic === selectedTopic);
+    queue = selectedTopic === "All" ? dueCards.slice() : dueCards.filter((card) => card.topic === selectedTopic);
     queueTotal = queue.length;
     showNextCard();
   }
@@ -190,52 +163,82 @@
     studyExample.style.display = "none";
     revealBtn.style.display = "";
     studyActions.style.display = "none";
+    if (undoBtn) undoBtn.hidden = !lastReview;
 
     if (allCards.length === 0) {
-      emptyCards.style.display = "";
-      importDeckCard.style.display = "";
+      if (emptyCards) emptyCards.style.display = "";
       studyArea.style.display = "none";
-      allCaughtUp.style.display = "none";
+      if (allCaughtUp) allCaughtUp.style.display = "none";
       return;
     }
-    emptyCards.style.display = "none";
-    importDeckCard.style.display = "none";
+    if (emptyCards) emptyCards.style.display = "none";
 
     if (queue.length === 0) {
       studyArea.style.display = "none";
-      allCaughtUp.style.display = "";
+      if (allCaughtUp) allCaughtUp.style.display = "";
       return;
     }
-    allCaughtUp.style.display = "none";
+    if (allCaughtUp) allCaughtUp.style.display = "none";
     studyArea.style.display = "";
 
     const card = queue[0];
     studyProgress.textContent = t("progress_of", { current: queueTotal - queue.length + 1, total: queueTotal });
-    studyTopic.textContent = card.topic;
+    studyTopic.textContent = topicLabel(card.topic);
     studyQuestion.textContent = card.question;
     studyAnswer.textContent = card.answer;
     studyExample.textContent = card.example || "";
     applyPreviews(card);
   }
 
-  revealBtn.addEventListener("click", () => {
+  function reveal() {
+    if (!onPage() || revealed || queue.length === 0) return;
     revealed = true;
     studyAnswer.style.display = "";
     if (queue[0] && queue[0].example) studyExample.style.display = "";
     revealBtn.style.display = "none";
     studyActions.style.display = "grid";
-  });
+  }
+
+  revealBtn.addEventListener("click", reveal);
+  if (studyCard) {
+    studyCard.addEventListener("click", (event) => {
+      if (event.target.closest("button")) return;
+      if (!revealed) reveal();
+    });
+  }
 
   async function submitReview(confidence) {
-    if (!onPage() || !revealed || queue.length === 0) return;
+    if (!onPage() || !revealed || queue.length === 0 || busy) return;
     const card = queue[0];
+    lastReview = {
+      card,
+      snapshot: {
+        due: card.due,
+        interval: card.interval,
+        ease: card.ease,
+        reps: card.reps,
+        lapses: card.lapses,
+        queue: card.queue,
+        due_at: card.due_at,
+        learn_step: card.learn_step,
+      },
+    };
+    queue.shift();
+    card.due_today = false;
+    showNextCard();
+    busy = true;
     try {
       await api(`/api/cards/${card.id}/review`, { method: "POST", body: JSON.stringify({ confidence }) });
     } catch (error) {
-      if (onPage()) showToast(error.message);
-      return;
+      queue.unshift(card);
+      lastReview = null;
+      if (onPage()) {
+        showNextCard();
+        showToast(error.message);
+      }
+    } finally {
+      busy = false;
     }
-    if (onPage()) await load();
   }
 
   studyActions.addEventListener("click", (event) => {
@@ -244,13 +247,30 @@
     submitReview(parseInt(button.dataset.confidence, 10));
   });
 
+  if (undoBtn) {
+    undoBtn.addEventListener("click", async () => {
+      if (!lastReview || busy) return;
+      const { card, snapshot } = lastReview;
+      lastReview = null;
+      queue.unshift(card);
+      card.due_today = true;
+      queueTotal += 1;
+      showNextCard();
+      try {
+        await api(`/api/cards/${card.id}/restore`, { method: "POST", body: JSON.stringify(snapshot) });
+      } catch (error) {
+        showToast(error.message);
+      }
+    });
+  }
+
   document.addEventListener("keydown", onKey);
   function onKey(event) {
-    if (!document.getElementById("study-area")) return;
+    if (!onPage() || !document.getElementById("study-area")) return;
     if (!revealed) {
       if (event.key === " " || event.key === "Enter") {
         event.preventDefault();
-        revealBtn.click();
+        reveal();
       }
       return;
     }
@@ -258,35 +278,20 @@
     if (map[event.key]) submitReview(map[event.key]);
   }
 
-  importDeckForm.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const code = importDeckCode.value.trim();
-    if (!code) return;
-    try {
-      const result = await api("/api/import-shared-deck", { method: "POST", body: JSON.stringify({ code }) });
-      showToast(t("imported_deck", { n: result.card_count, label: result.label }));
-      importDeckCode.value = "";
-      await load();
-    } catch (error) {
-      showToast(error.message);
-    }
-  });
-
-  if (srsForm) {
-    srsForm.addEventListener("submit", async (event) => {
-      event.preventDefault();
+  if (deckList) {
+    deckList.addEventListener("click", async (event) => {
+      const download = event.target.closest(".deck-download");
+      const remove = event.target.closest(".deck-remove");
+      const id = (download || remove) && (download || remove).dataset.id;
+      if (!id) return;
       try {
-        const saved = await api("/api/srs-settings", {
-          method: "POST",
-          body: JSON.stringify({
-            new_per_day: document.getElementById("new-per-day").value,
-            reviews_per_day: document.getElementById("reviews-per-day").value,
-            notify_hour: document.getElementById("notify-hour").value,
-            notify_enabled: document.getElementById("notify-enabled").value,
-          }),
-        });
-        fillSettings(saved);
-        showToast(t("limits_saved"));
+        if (download) {
+          download.disabled = true;
+          const result = await api(`/api/catalog/decks/${id}/download`, { method: "POST" });
+          showToast(t("deck_added", { n: result.added, label: result.label }));
+        } else {
+          await api(`/api/catalog/decks/${id}`, { method: "DELETE" });
+        }
         await load();
       } catch (error) {
         showToast(error.message);
@@ -294,26 +299,14 @@
     });
   }
 
-  if (enableNotify) {
-    enableNotify.addEventListener("click", async () => {
-      if (!("Notification" in window)) {
-        showToast(t("notify_unsupported"));
-        return;
-      }
-      const permission = await Notification.requestPermission();
-      showToast(permission === "granted" ? t("notify_allowed") : t("notify_denied"));
-    });
-  }
-
   function applyData(data) {
     if (!onPage() || !data) return;
     allCards = data.cards || [];
-    fillSettings(data.settings);
+    decks = data.decks || decks;
     renderCounts(data.counts);
     renderTopicFilter(data.topics || []);
+    renderDecks();
     buildQueue();
-    scheduleWake(data.waiting_at);
-    maybeNotify(data.due_count);
   }
 
   async function load() {
@@ -338,7 +331,6 @@
 
   window._pageCleanup = function () {
     pageAlive = false;
-    clearTimeout(wakeTimer);
     document.removeEventListener("keydown", onKey);
   };
 })();

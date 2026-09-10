@@ -7,6 +7,14 @@
 <h2 class="page-title">{{ t("choose_subject") }}</h2>
 <p class="page-lead">{{ t("learn_lead") }}</p>
 
+{% if continue_item %}
+<a class="course-card continue-card" href="{{ url_for('lesson_page', course_slug=continue_item.course_slug, level_slug=continue_item.level_slug, lesson_slug=continue_item.lesson_slug) }}" style="--accent: {{ continue_item.accent }}; margin-bottom:16px;">
+  <div class="badge" style="background: {{ continue_item.accent }}">→</div>
+  <h2>{{ t("continue_lesson") }}</h2>
+  <p>{{ t("continue_from", course=continue_item.course_title, lesson=continue_item.lesson_title) }}</p>
+</a>
+{% endif %}
+
 <div class="course-grid">
   {% for course in courses %}
     <a class="course-card" href="{{ url_for('course_page', course_slug=course.slug) }}" style="--accent: {{ course.accent }}">

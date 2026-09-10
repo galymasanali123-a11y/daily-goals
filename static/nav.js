@@ -8,6 +8,8 @@
   var busy = false;
   var queued = null;
   var progress = null;
+  var reduced =
+    window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   function phoneShell() {
     return (
       document.documentElement.classList.contains("standalone") ||
@@ -294,22 +296,13 @@
   remember(location.href, document.documentElement.outerHTML);
 
   function syncKeyboard() {
-    var vv = window.visualViewport;
-    if (!vv) return;
-    var covered = window.innerHeight - vv.height - vv.offsetTop;
-    document.body.classList.toggle("kb-open", covered > 80);
+    var active = document.activeElement;
+    var typing = active && /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName);
+    document.body.classList.toggle("kb-open", Boolean(typing));
   }
-  if (window.visualViewport) {
-    window.visualViewport.addEventListener("resize", syncKeyboard);
-    window.visualViewport.addEventListener("scroll", syncKeyboard);
-  }
-  window.addEventListener("focusin", function (event) {
-    if (event.target && /^(INPUT|TEXTAREA|SELECT)$/.test(event.target.tagName)) {
-      document.body.classList.add("kb-open");
-    }
-  });
+  window.addEventListener("focusin", syncKeyboard);
   window.addEventListener("focusout", function () {
-    setTimeout(syncKeyboard, 80);
+    setTimeout(syncKeyboard, 50);
   });
 
   if (!document.body.classList.contains("auth-page")) {

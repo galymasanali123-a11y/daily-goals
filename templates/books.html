@@ -7,21 +7,54 @@
 <h2 class="page-title">{{ t("books_title") }}</h2>
 <p class="page-lead">{{ t("books_lead") }}</p>
 
-{% if not books %}
-<div class="card empty-state">
-  {{ t("books_empty") }}
-</div>
-{% else %}
 <div class="card">
-  {% for book in books %}
-    <div class="book-row" style="align-items:center;">
-      <a href="{{ url_for('book_reader', book_id=book.id) }}" style="flex:1; min-width:0; text-decoration:none; color:inherit;">
-        <span class="book-title">{{ book.title }}</span>
-        <div class="book-meta">{{ book.size }}</div>
-      </a>
-      <a class="ghost-link" href="{{ url_for('book_reader', book_id=book.id) }}" target="_blank" rel="noopener" title="{{ t('open_separately') }}">↗</a>
-    </div>
-  {% endfor %}
+  <h2>{{ t("upload_book") }}</h2>
+  <p class="sync-note">{{ t("upload_book_hint") }}</p>
+  <form id="phone-upload-form" class="add-goal">
+    <input type="file" id="phone-upload-file" accept=".pdf,.txt,.md,.markdown,application/pdf,text/plain,text/markdown">
+    <button type="submit" class="primary">{{ t("upload_book") }}</button>
+  </form>
 </div>
-{% endif %}
+
+<div class="card">
+  <h2>{{ t("my_library") }}</h2>
+  <div id="library-list">
+    {% if not books %}
+      <div class="empty-state">{{ t("books_empty") }}</div>
+    {% else %}
+      {% for book in books %}
+        <div class="book-row" data-id="{{ book.id }}" style="align-items:center;">
+          <a href="{{ url_for('book_reader', book_id=book.id) }}" style="flex:1; min-width:0; text-decoration:none; color:inherit;">
+            <span class="book-title">{{ book.title }}</span>
+            <div class="book-meta">{{ book.size }}</div>
+          </a>
+          <button type="button" class="icon-btn delete-book" data-id="{{ book.id }}" title="{{ t('delete_book') }}">✕</button>
+        </div>
+      {% endfor %}
+    {% endif %}
+  </div>
+</div>
+
+<div class="card">
+  <h2>{{ t("catalog_books") }}</h2>
+  <div id="book-catalog" class="catalog-list">
+    {% for item in catalog_books %}
+      <div class="catalog-row" data-id="{{ item.id }}">
+        <div>
+          <strong>{{ item.title }}</strong>
+          <p>{{ item.blurb }}</p>
+          <span class="book-meta">{{ item.size }}</span>
+        </div>
+        {% if item.downloaded %}
+          <span class="ghost-link">{{ t("downloaded") }}</span>
+        {% else %}
+          <button type="button" class="primary catalog-download" data-id="{{ item.id }}">{{ t("book_download") }}</button>
+        {% endif %}
+      </div>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='books.js') }}?v={{ asset_v }}"></script>
 {% endblock %}

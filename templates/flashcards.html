@@ -16,21 +16,13 @@
   {{ t("cards_empty") }}
 </div>
 
-<div id="import-deck-card" class="card" style="display:none;">
-  <h2>{{ t("share_code_title") }}</h2>
-  <form id="import-deck-form" class="import-deck-form">
-    <input type="text" id="import-deck-code" placeholder="{{ t('share_code_placeholder') }}" autocapitalize="characters" autocomplete="off">
-    <button type="submit" class="primary">{{ t("import") }}</button>
-  </form>
-</div>
-
 <div id="all-caught-up" class="card empty-state" style="display:none;">
   {{ t("caught_up") }}
 </div>
 
 <div id="study-area" style="display:none;">
   <div id="study-progress" class="study-progress"></div>
-  <div class="card study-card" id="study-card">
+  <div class="card study-card" id="study-card" role="button" tabindex="0">
     <div class="study-topic" id="study-topic"></div>
     <div class="study-question" id="study-question"></div>
     <div class="study-answer" id="study-answer" style="display:none;"></div>
@@ -43,37 +35,15 @@
     <button class="btn-good" data-confidence="3">{{ t("good") }}<span class="interval" data-preview="3"></span></button>
     <button class="btn-easy" data-confidence="4">{{ t("easy") }}<span class="interval" data-preview="4"></span></button>
   </div>
+  <button type="button" class="ghost-link undo-review" id="undo-review" hidden>{{ t("undo") }}</button>
 </div>
 
-<div class="card" id="srs-settings-card">
-  <h2>{{ t("srs_title") }}</h2>
-  <p class="sync-note">{{ t("srs_note") }}</p>
-  <form id="srs-form" class="settings-grid">
-    <div>
-      <label for="new-per-day">{{ t("new_per_day") }}</label>
-      <input type="number" id="new-per-day" min="0" max="200" value="20">
-    </div>
-    <div>
-      <label for="reviews-per-day">{{ t("reviews_per_day") }}</label>
-      <input type="number" id="reviews-per-day" min="0" max="9999" value="200">
-    </div>
-    <div>
-      <label for="notify-hour">{{ t("notify_hour") }}</label>
-      <input type="number" id="notify-hour" min="0" max="23" value="9">
-    </div>
-    <div>
-      <label for="notify-enabled">{{ t("daily_reminder") }}</label>
-      <select id="notify-enabled">
-        <option value="1">{{ t("enabled") }}</option>
-        <option value="0">{{ t("disabled") }}</option>
-      </select>
-    </div>
-    <button type="submit" class="primary" style="grid-column: 1 / -1;">{{ t("save") }}</button>
-  </form>
-  <button type="button" class="ghost-link" id="enable-notify" style="margin-top:10px; background:none; border:none; cursor:pointer;">{{ t("enable_notifications") }}</button>
+<div class="card" id="deck-catalog">
+  <h2>{{ t("catalog_decks") }}</h2>
+  <div id="deck-list" class="catalog-list"></div>
 </div>
 {% endblock %}
 {% block scripts %}
 <script type="application/json" id="cards-bootstrap">{{ cards_bootstrap | tojson }}</script>
-<script src="{{ url_for('static', filename='flashcards.js') }}"></script>
+<script src="{{ url_for('static', filename='flashcards.js') }}?v={{ asset_v }}"></script>
 {% endblock %}

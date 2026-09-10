@@ -111,6 +111,24 @@ def catalog_payload(progress, lang=None):
     return [course_payload(course, progress, lang) for course in BY_SLUG.values()]
 
 
+def continue_lesson(progress, lang=None):
+    for course in BY_SLUG.values():
+        payload = course_payload(course, progress, lang)
+        for level in payload["levels"]:
+            for lesson in level["lessons"]:
+                if not lesson["completed"]:
+                    return {
+                        "course_slug": payload["slug"],
+                        "course_title": payload["title"],
+                        "level_slug": level["slug"],
+                        "level_short": level["short"],
+                        "lesson_slug": lesson["slug"],
+                        "lesson_title": lesson["title"],
+                        "accent": payload["accent"],
+                    }
+    return None
+
+
 def _p(text):
     return f"<p>{escape(text)}</p>"
 

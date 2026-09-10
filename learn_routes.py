@@ -11,6 +11,7 @@ from content_i18n import course_field, lesson_field, level_field
 from i18n import t
 from courses import (
     catalog_payload,
+    continue_lesson,
     course_payload,
     empty_progress,
     lesson_complete,
@@ -104,7 +105,11 @@ def register_learn_routes(app, get_db, login_required):
     def learn_page():
         db = get_db()
         progress = progress_map(_progress_rows(db, session["user_id"]))
-        return render_template("learn.html", courses=catalog_payload(progress))
+        return render_template(
+            "learn.html",
+            courses=catalog_payload(progress),
+            continue_item=continue_lesson(progress),
+        )
 
     @app.route("/learn/<course_slug>")
     @login_required

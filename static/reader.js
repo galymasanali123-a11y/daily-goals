@@ -6,8 +6,10 @@
   const toast = document.getElementById("toast");
   const reader = document.getElementById("reader-text");
   const noteForm = document.getElementById("note-form");
+  const applyBtn = document.getElementById("apply-highlight");
   let color = "yellow";
   let highlights = Array.isArray(cfg.highlights) ? cfg.highlights.slice() : [];
+  const posKey = `reader-pos-${cfg.bookId}`;
 
   function showToast(message) {
     if (!toast) return;
@@ -98,30 +100,30 @@
     return { start, end, snippet: range.toString().slice(0, 400) };
   }
 
-  if (reader && cfg.isText) {
-    async function saveSelection() {
-      const picked = selectionOffsets();
-      if (!picked) return;
-      try {
-        const created = await api(`/api/books/${cfg.bookId}/highlights`, {
-          method: "POST",
-          body: JSON.stringify({
-            color,
-            start_offset: picked.start,
-            end_offset: picked.end,
-            snippet: picked.snippet,
-          }),
-        });
-        highlights.push(created);
-        renderList();
-        renderText();
-        window.getSelection().removeAllRanges();
-      } catch (error) {
-        showToast(error.message);
-      }
+  async function saveSelection() {
+    const picked = selectionOffsets();
+    if (!picked) return;
+    try {
+      const created = await api(`/api/books/${cfg.bookId}/highlights`, {
+        method: "POST",
+        body: JSON.stringify({
+          color,
+          start_offset: picked.start,
+          end_offset: picked.end,
+          snippet: picked.snippet,
+        }),
+      });
+      highlights.push(created);
+      renderList();
+      renderText();
+      window.getSelection().removeAllRanges();
+    } catch (error) {
+      showToast(error.message);
     }
-    reader.addEventListener("mouseup", saveSelection);
-    reader.addEventListener("touchend", () => setTimeout(saveSelection, 50));
+  }
+
+  if (applyBtn) {
+    applyBtn.addEventListener("click", saveSelection);
   }
 
   if (noteForm) {
@@ -159,6 +161,16 @@
       }
     });
   }
+
+  try {
+    const saved = Number(localStorage.getItem(posKey) || 0);
+    if (saved) window.scrollTo(0, saved);
+  } catch (error) {}
+  window.addEventListener("scroll", () => {
+    try {
+      localStorage.setItem(posKey, String(window.scrollY));
+    } catch (error) {}
+  }, { passive: true });
 
   renderList();
   renderText();

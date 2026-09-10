@@ -25,22 +25,119 @@
 
 <div class="card">
   <h2>{{ t("appearance") }}</h2>
-  <div class="lang-grid">
+  <div class="lang-grid theme-grid">
     <button type="button" class="lang-choice theme-choice" data-theme="light">{{ t("theme_light") }}</button>
     <button type="button" class="lang-choice theme-choice" data-theme="dark">{{ t("theme_dark") }}</button>
+    <button type="button" class="lang-choice theme-choice" data-theme="system">{{ t("theme_system") }}</button>
   </div>
 </div>
+
+{% if srs_settings %}
+<div class="card">
+  <h2>{{ t("srs_title") }}</h2>
+  <p class="sync-note">{{ t("srs_note") }}</p>
+  <form id="srs-form" class="settings-grid">
+    <div>
+      <label for="new-per-day">{{ t("new_per_day") }}</label>
+      <input type="number" id="new-per-day" min="0" max="200" value="{{ srs_settings.new_per_day }}">
+    </div>
+    <div>
+      <label for="reviews-per-day">{{ t("reviews_per_day") }}</label>
+      <input type="number" id="reviews-per-day" min="0" max="9999" value="{{ srs_settings.reviews_per_day }}">
+    </div>
+    <div>
+      <label for="notify-hour">{{ t("notify_hour") }}</label>
+      <select id="notify-hour">
+        {% for hour in range(24) %}
+          <option value="{{ hour }}" {% if srs_settings.notify_hour == hour %}selected{% endif %}>{{ t("hour_label", n=hour) }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label for="notify-enabled">{{ t("daily_reminder") }}</label>
+      <select id="notify-enabled">
+        <option value="1" {% if srs_settings.notify_enabled %}selected{% endif %}>{{ t("enabled") }}</option>
+        <option value="0" {% if not srs_settings.notify_enabled %}selected{% endif %}>{{ t("disabled") }}</option>
+      </select>
+    </div>
+    <button type="submit" class="primary" style="grid-column: 1 / -1;">{{ t("save") }}</button>
+  </form>
+  <p class="sync-note">{{ t("notify_honest") }}</p>
+  <button type="button" class="ghost-link" id="enable-notify" style="margin-top:10px; background:none; border:none; cursor:pointer;">{{ t("enable_notifications") }}</button>
+</div>
+{% endif %}
+
+{% if session.get("user_id") %}
+<a class="muted-link" href="{{ url_for('logout') }}">{{ t("sign_out") }}</a>
+{% endif %}
 {% endblock %}
 {% block scripts %}
 <script>
-  document.querySelectorAll(".theme-choice").forEach(function (btn) {
-    btn.addEventListener("click", function () {
-      var next = btn.getAttribute("data-theme");
-      try { localStorage.setItem("theme-preference", next); } catch (e) {}
-      document.documentElement.setAttribute("data-theme", next);
-      var toggle = document.getElementById("theme-toggle");
-      if (toggle) toggle.textContent = next === "dark" ? "☀️" : "🌙";
+  (function () {
+    var STORAGE_KEY = "theme-preference";
+    function stored() {
+      try { return localStorage.getItem(STORAGE_KEY); } catch (e) { return null; }
+    }
+    function mark() {
+      var cur = stored();
+      document.querySelectorAll(".theme-choice").forEach(function (btn) {
+        var value = btn.getAttribute("data-theme");
+        btn.classList.toggle("active", value === "system" ? !cur : cur === value);
+      });
+    }
+    document.querySelectorAll(".theme-choice").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var next = btn.getAttribute("data-theme");
+        try {
+          if (next === "system") localStorage.removeItem(STORAGE_KEY);
+          else localStorage.setItem(STORAGE_KEY, next);
+        } catch (e) {}
+        if (next === "light" || next === "dark") document.documentElement.setAttribute("data-theme", next);
+        else document.documentElement.removeAttribute("data-theme");
+        mark();
+      });
     });
-  });
+    mark();
+
+    var srsForm = document.getElementById("srs-form");
+    var toast = document.getElementById("toast");
+    function showToast(message) {
+      if (!toast) return;
+      toast.textContent = message;
+      toast.classList.add("show");
+      clearTimeout(showToast._t);
+      showToast._t = setTimeout(function () { toast.classList.remove("show"); }, 2200);
+    }
+    if (srsForm) {
+      srsForm.addEventListener("submit", function (event) {
+        event.preventDefault();
+        fetch("/api/srs-settings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            new_per_day: document.getElementById("new-per-day").value,
+            reviews_per_day: document.getElementById("reviews-per-day").value,
+            notify_hour: document.getElementById("notify-hour").value,
+            notify_enabled: document.getElementById("notify-enabled").value
+          })
+        }).then(function (res) {
+          if (!res.ok) throw new Error();
+          showToast(t("limits_saved"));
+        }).catch(function () { showToast(t("something_wrong")); });
+      });
+    }
+    var enableNotify = document.getElementById("enable-notify");
+    if (enableNotify) {
+      enableNotify.addEventListener("click", function () {
+        if (!("Notification" in window)) {
+          showToast(t("notify_unsupported"));
+          return;
+        }
+        Notification.requestPermission().then(function (permission) {
+          showToast(permission === "granted" ? t("notify_allowed") : t("notify_denied"));
+        });
+      });
+    }
+  })();
 </script>
 {% endblock %}

@@ -124,9 +124,7 @@ body:not(.auth-page) .bottom-nav {
   background: color-mix(in srgb, var(--accent) 10%, transparent);
 }
 body.kb-open .bottom-nav {
-  opacity: 0;
-  pointer-events: none;
-  transform: translateY(110%);
+  /* Keep the dock still — hiding it on iPhone is what made the tab bar jump. */
 }
 @media (min-width: 720px) {
   body:not(.auth-page) .bottom-nav { display: none; }
@@ -506,7 +504,7 @@ mark[data-color="blue"] { background: var(--blue); }
 button.primary:disabled { opacity: 0.55; cursor: default; }
 
 header.top .settings-link {
-  right: 68px;
+  right: 16px;
   text-decoration: none;
   color: #fff;
 }
@@ -640,12 +638,14 @@ button.primary,
 .course-card:active,
 .lesson-row:active,
 .nav-tab:active,
-.bottom-nav a:active,
 .lang-choice:active,
 button.primary:active,
 .btn-reveal:active,
 .study-actions button:active {
   transform: scale(0.97);
+}
+.bottom-nav a:active {
+  opacity: 0.75;
 }
 .progress-line > span { transition: width 0.45s ease; }
 main.page-in .card {
@@ -688,3 +688,67 @@ main.page-in {
     animation: none !important;
   }
 }
+
+.card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.card-head h2 { margin: 0; }
+.goals-list .reorder-col { display: none; }
+.goals-list.is-reordering .reorder-col { display: flex; }
+.stats-fold {
+  padding: 14px 18px;
+}
+.stats-fold summary {
+  cursor: pointer;
+  font-weight: 700;
+  color: var(--text-body);
+}
+.stats-fold[open] summary { margin-bottom: 12px; }
+.catalog-list { display: grid; gap: 12px; }
+.catalog-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+.catalog-row:last-child { border-bottom: none; }
+.catalog-row p {
+  margin: 4px 0 0;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+.step-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.next-lesson-btn {
+  text-decoration: none;
+  text-align: center;
+}
+.theme-grid { grid-template-columns: 1fr 1fr 1fr; }
+.undo-review {
+  display: block;
+  text-align: center;
+  margin-top: 12px;
+  width: 100%;
+}
+.add-goal { margin-top: 12px; }
+.continue-card { min-height: auto; }
+body:not(.auth-page) .bottom-nav { z-index: 80; }
+input[type="file"] {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.85rem;
+  color: var(--text-body);
+}
+@media (max-width: 719px) {
+  .reader-notes { order: 2; }
+}
+

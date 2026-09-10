@@ -11,6 +11,8 @@
   const digestCard = document.getElementById("digest-card");
   const digestBody = document.getElementById("digest-body");
   const toast = document.getElementById("toast");
+  const reorderToggle = document.getElementById("reorder-toggle");
+  const allDone = document.getElementById("all-done-today");
   if (!goalsList || !addForm) return;
 
   let pageAlive = true;
@@ -19,13 +21,36 @@
   }
 
   let editingId = null;
+  let reorderMode = false;
+  let pendingDelete = null;
+  let state = { goals: [], synced_tasks: [], done_count: 0, total_count: 0, streak: 0 };
+  const bootstrap = document.getElementById("goals-bootstrap");
+  if (bootstrap) {
+    try {
+      state = Object.assign(state, JSON.parse(bootstrap.textContent));
+    } catch (error) {}
+  }
 
-  function showToast(message) {
+  function showToast(message, actionLabel, onAction) {
     if (!onPage() || !toast || !message) return;
-    toast.textContent = message;
+    toast.innerHTML = "";
+    const text = document.createElement("span");
+    text.textContent = message;
+    toast.appendChild(text);
+    if (actionLabel && onAction) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "toast-action";
+      btn.textContent = actionLabel;
+      btn.addEventListener("click", () => {
+        toast.classList.remove("show");
+        onAction();
+      });
+      toast.appendChild(btn);
+    }
     toast.classList.add("show");
     clearTimeout(showToast._t);
-    showToast._t = setTimeout(() => toast.classList.remove("show"), 2200);
+    showToast._t = setTimeout(() => toast.classList.remove("show"), 3200);
   }
 
   async function api(path, options) {
@@ -42,6 +67,12 @@
       throw new Error(body.error || t("something_wrong"));
     }
     return response.json();
+  }
+
+  function escapeHTML(text) {
+    const div = document.createElement("div");
+    div.textContent = text;
+    return div.innerHTML;
   }
 
   function goalRowHTML(goal, index, total) {
@@ -62,12 +93,6 @@
       </div>`;
   }
 
-  function escapeHTML(text) {
-    const div = document.createElement("div");
-    div.textContent = text;
-    return div.innerHTML;
-  }
-
   function syncedRowHTML(task) {
     const doneClass = task.done ? "done" : "";
     const check = task.done ? "✓" : "";
@@ -81,74 +106,48 @@
       </div>`;
   }
 
-  function renderState(state) {
-    if (!onPage() || !state) return;
-    statDone.textContent = `${state.done_count}/${state.total_count}`;
-    statStreak.textContent = `🔥 ${state.streak}`;
-
-    if (state.goals.length === 0) {
+  function paintLocal() {
+    if (!onPage()) return;
+    if (statDone) statDone.textContent = `${state.done_count}/${state.total_count}`;
+    if (statStreak) statStreak.textContent = `🔥 ${state.streak}`;
+    const goals = state.goals || [];
+    if (goals.length === 0) {
       goalsList.innerHTML = `<div class="empty-state">${t("no_goals")}</div>`;
     } else {
-      goalsList.innerHTML = state.goals.map((goal, index) => goalRowHTML(goal, index, state.goals.length)).join("");
+      goalsList.innerHTML = goals.map((goal, index) => goalRowHTML(goal, index, goals.length)).join("");
     }
-
-    // The synced-tasks card only exists in the DOM if there was at least one at page load;
-    // if it's there, keep it live too. (A brand-new sync while the page is open needs a reload to appear.)
+    goalsList.classList.toggle("is-reordering", reorderMode);
     if (syncedList && state.synced_tasks) {
       syncedList.innerHTML = state.synced_tasks.map(syncedRowHTML).join("");
     }
+    if (allDone) {
+      const open = goals.filter((goal) => !goal.done).length + (state.synced_tasks || []).filter((task) => !task.done).length;
+      allDone.hidden = !(goals.length && open === 0);
+    }
+  }
 
+  function renderState(next) {
+    if (!onPage() || !next) return;
+    state = next;
+    paintLocal();
     if (state.history) renderHistory(state.history);
     if (state.digest) renderDigest(state.digest);
-    touchNavCache();
-  }
-
-  const WEEKDAYS = {
-    en: ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"],
-    ru: ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"],
-  };
-
-  function localToday() {
-    const now = new Date();
-    const month = String(now.getMonth() + 1).padStart(2, "0");
-    const day = String(now.getDate()).padStart(2, "0");
-    return `${now.getFullYear()}-${month}-${day}`;
-  }
-
-  function weekdayLabel(dateStr, fallback) {
-    if (fallback) return fallback;
-    const date = new Date(dateStr + "T00:00:00");
-    if (Number.isNaN(date.getTime())) return "";
-    const names = WEEKDAYS[window.LANG] || WEEKDAYS.en;
-    return names[(date.getDay() + 6) % 7];
+    if (typeof window.__DG_NAV_REMEMBER === "function") window.__DG_NAV_REMEMBER();
   }
 
   function renderHistory(data) {
     if (!historyStrip || !data || !data.days) return;
     const maxCount = Math.max(data.total_goals || 1, 1, ...data.days.map((day) => day.count || 0));
-    const today = localToday();
     historyStrip.innerHTML = data.days
       .map((day) => {
         const heightPct = day.height || Math.max(6, Math.round((day.count / maxCount) * 100));
-        const isToday = day.date === today;
-        const hasActivity = day.count > 0;
-        const label = weekdayLabel(day.date, day.label);
         return `
-          <div class="history-day" title="${escapeHTML(t("history_done", { date: day.date, count: day.count }))}">
-            <div class="history-bar ${hasActivity ? "has-activity" : ""} ${isToday ? "is-today" : ""}" style="height:${heightPct}%"></div>
-            <div class="history-label">${label}</div>
+          <div class="history-day">
+            <div class="history-bar ${day.count ? "has-activity" : ""} ${day.date === state.today ? "is-today" : ""}" style="height:${heightPct}%"></div>
+            <div class="history-label">${escapeHTML(day.label || "")}</div>
           </div>`;
       })
       .join("");
-  }
-
-  async function refreshHistory() {
-    try {
-      const data = await api("/api/history");
-      if (onPage()) renderHistory(data);
-    } catch (error) {
-      // history is a nice-to-have; a silent failure here shouldn't block the rest of the app
-    }
   }
 
   function renderDigest(digest) {
@@ -170,17 +169,37 @@
     digestCard.hidden = false;
   }
 
-  function touchNavCache() {
-    if (typeof window.__DG_NAV_REMEMBER === "function") window.__DG_NAV_REMEMBER();
+  function recount() {
+    const doneGoals = (state.goals || []).filter((goal) => goal.done).length;
+    const doneTasks = (state.synced_tasks || []).filter((task) => task.done).length;
+    state.done_count = doneGoals + doneTasks;
+    state.total_count = (state.goals || []).length + (state.synced_tasks || []).length;
+  }
+
+  if (reorderToggle) {
+    reorderToggle.addEventListener("click", () => {
+      reorderMode = !reorderMode;
+      reorderToggle.textContent = reorderMode ? t("done_reorder") : t("reorder");
+      goalsList.classList.toggle("is-reordering", reorderMode);
+    });
   }
 
   if (syncedList) {
     syncedList.addEventListener("click", async (event) => {
       const row = event.target.closest(".synced-row");
       if (!row || !event.target.closest(".synced-toggle")) return;
+      const task = (state.synced_tasks || []).find((item) => String(item.id) === row.dataset.id);
+      if (task) {
+        task.done = !task.done;
+        recount();
+        paintLocal();
+      }
       try {
         renderState(await api(`/api/synced-tasks/${row.dataset.id}/toggle`, { method: "POST" }));
       } catch (error) {
+        if (task) task.done = !task.done;
+        recount();
+        paintLocal();
         showToast(error.message);
       }
     });
@@ -193,19 +212,45 @@
 
     if (event.target.closest(".goal-toggle")) {
       if (editingId === goalId) return;
+      const goal = (state.goals || []).find((item) => String(item.id) === goalId);
+      if (goal) {
+        goal.done = !goal.done;
+        recount();
+        paintLocal();
+      }
       try {
         renderState(await api(`/api/toggle/${goalId}`, { method: "POST" }));
       } catch (error) {
+        if (goal) goal.done = !goal.done;
+        recount();
+        paintLocal();
         showToast(error.message);
       }
       return;
     }
 
     if (event.target.closest(".delete-btn")) {
-      if (!confirm(t("delete_goal_confirm"))) return;
+      const goal = (state.goals || []).find((item) => String(item.id) === goalId);
+      if (!goal) return;
+      pendingDelete = goal;
+      state.goals = state.goals.filter((item) => String(item.id) !== goalId);
+      recount();
+      paintLocal();
+      showToast(t("goal_deleted"), t("undo"), async () => {
+        pendingDelete = null;
+        try {
+          renderState(await api("/api/goals", { method: "POST", body: JSON.stringify({ text: goal.text }) }));
+        } catch (error) {
+          showToast(error.message);
+        }
+      });
       try {
-        renderState(await api(`/api/goals/${goalId}/delete`, { method: "POST" }));
+        await api(`/api/goals/${goalId}/delete`, { method: "POST" });
+        pendingDelete = null;
       } catch (error) {
+        state.goals.push(goal);
+        recount();
+        paintLocal();
         showToast(error.message);
       }
       return;
@@ -237,11 +282,9 @@
     const toggleBtn = row.querySelector(".goal-toggle");
     const editBtn = row.querySelector(".edit-btn");
     const deleteBtn = row.querySelector(".delete-btn");
-
     toggleBtn.style.display = "none";
     editBtn.style.display = "none";
     deleteBtn.style.display = "none";
-
     const wrapper = document.createElement("div");
     wrapper.style.cssText = "flex:1; display:flex; gap:6px;";
     wrapper.innerHTML = `
@@ -300,15 +343,7 @@
     }
   });
 
-  if (historyStrip && historyStrip.children.length === 0) {
-    refreshHistory().then(function () {
-      if (onPage() && historyStrip) historyStrip.classList.add("is-ready");
-    });
-  } else if (historyStrip) {
-    window.setTimeout(function () {
-      if (onPage() && historyStrip) historyStrip.classList.add("is-ready");
-    }, 420);
-  }
+  paintLocal();
 
   window._pageCleanup = function () {
     pageAlive = false;

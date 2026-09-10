@@ -506,11 +506,24 @@
     opacity: 0;
     transition: opacity 0.2s ease, transform 0.2s ease;
     pointer-events: none;
-    z-index: 50;
+    z-index: 30;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    max-width: calc(100% - 24px);
   }
   .toast.show {
     opacity: 1;
     transform: translateX(-50%) translateY(0);
+    pointer-events: auto;
+  }
+  .toast-action {
+    background: transparent;
+    border: 0;
+    color: #5eead4;
+    font-weight: 700;
+    cursor: pointer;
+    padding: 0;
   }
   .nav-tabs {
     display: flex;
@@ -648,7 +661,7 @@
     cursor: pointer;
   }
 </style>
-<link rel="stylesheet" href="{{ url_for('static', filename='app-ui.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='app-ui.css') }}?v={{ asset_v }}">
 {% if not is_auth_page %}
 <link rel="prefetch" href="{{ url_for('index') }}">
 <link rel="prefetch" href="{{ url_for('learn_page') }}">
@@ -659,8 +672,9 @@
 <body class="{% if is_auth_page %}auth-page{% endif %} {% if wide_layout %}wide-layout{% endif %}">
 <div id="nav-progress" hidden></div>
 <header class="top">
+  {% if not is_auth_page %}
   <a class="theme-toggle-btn settings-link" href="{{ url_for('settings_page') }}" aria-label="{{ t('nav_settings') }}" title="{{ t('nav_settings') }}">⚙</a>
-  <button type="button" class="theme-toggle-btn" id="theme-toggle" aria-label="{{ t('theme_toggle') }}">🌙</button>
+  {% endif %}
   <h1>{{ t("app_name") }}</h1>
   <p>{% block subtitle %}{{ t("tagline") }}{% endblock %}</p>
 </header>
@@ -680,24 +694,27 @@
   window.I18N = {{ i18n_catalog | tojson }};
   window.LANG = {{ lang | tojson }};
 </script>
-<script src="{{ url_for('static', filename='i18n.js') }}"></script>
+<script src="{{ url_for('static', filename='i18n.js') }}?v={{ asset_v }}"></script>
 <script>
   if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("/sw.js").catch(function () {});
+    navigator.serviceWorker.register("/sw.js").then(function (reg) {
+      if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
+    }).catch(function () {});
+    var refreshing = false;
+    navigator.serviceWorker.addEventListener("controllerchange", function () {
+      if (refreshing) return;
+      refreshing = true;
+      location.reload();
+    });
   }
 
   (function () {
     var STORAGE_KEY = "theme-preference";
-
     function systemPrefersDark() {
       return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
     }
     function getStored() {
       try { return localStorage.getItem(STORAGE_KEY); } catch (e) { return null; }
-    }
-    function effectiveTheme() {
-      var stored = getStored();
-      return (stored === "light" || stored === "dark") ? stored : (systemPrefersDark() ? "dark" : "light");
     }
     function applyTheme(theme) {
       if (theme === "light" || theme === "dark") {
@@ -706,20 +723,14 @@
         document.documentElement.removeAttribute("data-theme");
       }
     }
-
-    var btn = document.getElementById("theme-toggle");
-    function updateIcon() {
-      if (btn) btn.textContent = effectiveTheme() === "dark" ? "☀️" : "🌙";
-    }
-    if (btn) {
-      btn.addEventListener("click", function () {
-        var next = effectiveTheme() === "dark" ? "light" : "dark";
-        try { localStorage.setItem(STORAGE_KEY, next); } catch (e) {}
-        applyTheme(next);
-        updateIcon();
+    var stored = getStored();
+    if (stored === "light" || stored === "dark") applyTheme(stored);
+    else applyTheme(null);
+    if (window.matchMedia) {
+      window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", function () {
+        if (!getStored()) applyTheme(null);
       });
     }
-    updateIcon();
   })();
 
   document.addEventListener("click", function (event) {
@@ -735,6 +746,6 @@
   });
 </script>
 <div id="page-scripts">{% block scripts %}{% endblock %}</div>
-<script src="{{ url_for('static', filename='nav.js') }}"></script>
+<script src="{{ url_for('static', filename='nav.js') }}?v={{ asset_v }}"></script>
 </body>
 </html>
