@@ -49,29 +49,45 @@
 </div>
 
 <div class="lesson-step" data-step-panel="2" hidden>
-  <div class="card" id="practice-card">
-    <h2>{{ t("exercises") }}</h2>
+  <div class="card ka-card" id="practice-card">
+    <div class="ka-head">
+      <h2>{{ t("exercises") }}</h2>
+      <div class="ka-dots" id="ka-dots" aria-hidden="true">
+        {% for exercise in lesson.exercises %}
+          <span class="ka-dot" data-dot="{{ loop.index0 }}"></span>
+        {% endfor %}
+      </div>
+    </div>
+    <p class="ka-count" id="ka-count"></p>
     <form id="exercise-form">
       {% for exercise in lesson.exercises %}
-        <div class="exercise" data-index="{{ loop.index0 }}" {% if not loop.first %}hidden{% endif %}>
-          <div class="prompt">{{ loop.index }}. {{ exercise.prompt }}</div>
+        <div class="exercise" data-index="{{ loop.index0 }}" data-type="{{ exercise.type }}" {% if not loop.first %}hidden{% endif %}>
+          <div class="prompt">{{ exercise.prompt }}</div>
           {% if exercise.type == 'fill' %}
-            <input type="text" name="{{ loop.index0 }}" value="{{ progress.answers.get(loop.index0|string, '') }}" autocomplete="off">
+            <input type="text" name="{{ loop.index0 }}" value="{{ progress.answers.get(loop.index0|string, '') }}" autocomplete="off" spellcheck="false">
           {% else %}
             <div class="choices">
               {% for option in exercise.options %}
-                <label>
-                  <input type="radio" name="{{ loop.index0 }}" value="{{ option }}"
-                         {% if progress.answers.get(loop.index0|string) == option %}checked{% endif %}>
-                  {{ option }}
-                </label>
+                <button type="button" class="choice-btn" data-value="{{ option }}" aria-pressed="false">
+                  <span class="choice-mark" aria-hidden="true"></span>
+                  <span class="choice-text">{{ option }}</span>
+                </button>
               {% endfor %}
             </div>
           {% endif %}
           <div class="explain" hidden></div>
         </div>
       {% endfor %}
-      <button type="submit" class="primary">{{ t("check") }}</button>
+      <div class="ka-bar" id="ka-bar">
+        <div class="ka-feedback" id="ka-feedback" hidden>
+          <span class="ka-icon" id="ka-icon"></span>
+          <div>
+            <strong id="ka-title"></strong>
+            <p id="ka-detail"></p>
+          </div>
+        </div>
+        <button type="submit" class="primary" id="ka-check">{{ t("check") }}</button>
+      </div>
     </form>
   </div>
 </div>
@@ -81,7 +97,7 @@
   <div class="checklist">
     <div class="check-item {% if progress.grammar_done %}done{% endif %}">{{ t("grammar") }} <span>{{ t("done") if progress.grammar_done else t("not_yet") }}</span></div>
     <div class="check-item {% if progress.cards_added %}done{% endif %}">{{ t("words_in_deck") }} <span>{{ t("done") if progress.cards_added else t("not_yet") }}</span></div>
-    <div class="check-item {% if progress.exercises_total %}done{% endif %}" id="exercise-check">{{ t("exercises") }} <span id="exercise-score">{{ progress.exercises_correct }}/{{ lesson.exercises|length }}</span></div>
+    <div class="check-item {% if progress.exercises_correct == lesson.exercises|length and lesson.exercises|length %}done{% endif %}" id="exercise-check">{{ t("exercises") }} <span id="exercise-score">{{ progress.exercises_correct }}/{{ lesson.exercises|length }}</span></div>
   </div>
   {% if finished %}
     <p class="sync-note">{{ t("lesson_complete") }}</p>
@@ -103,7 +119,9 @@
     cardsUrl: {{ url_for('api_lesson_cards', course_slug=course.slug, level_slug=level.slug, lesson_slug=lesson.slug)|tojson }},
     exercisesUrl: {{ url_for('api_lesson_exercises', course_slug=course.slug, level_slug=level.slug, lesson_slug=lesson.slug)|tojson }},
     startStep: {{ 2 if progress.exercises_total else (1 if progress.grammar_done else 0) }},
-    cardsAdded: {{ 1 if progress.cards_added else 0 }}
+    cardsAdded: {{ 1 if progress.cards_added else 0 }},
+    exerciseCount: {{ lesson.exercises|length }},
+    exerciseResults: {{ exercise_results|tojson }}
   };
 </script>
 <script src="{{ url_for('static', filename='lesson.js') }}?v={{ asset_v }}"></script>

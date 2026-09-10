@@ -27,7 +27,7 @@ from prefs import load_user_lang, save_user_lang
 import srs
 
 SECRET_KEY = os.environ.get("SECRET_KEY", "dev-secret-change-in-production")
-ASSET_VERSION = "7"
+ASSET_VERSION = "9"
 STATIC_DIR = Path(__file__).parent / "static"
 SHARED_DECKS_DIR = Path(__file__).parent / "shared_decks"
 # A fixed allowlist (code -> filename, label) rather than resolving user input straight to a
@@ -787,6 +787,16 @@ def study_payload(db, user_id):
         card["previews"] = srs.button_previews(card)
     topics = sorted({card["topic"] for card in cards})
     due_count = sum(1 for card in cards if card["due_today"])
+    studied_today = 0
+    try:
+        row = query_one(
+            db,
+            "SELECT COUNT(*) AS n FROM card_review_events WHERE user_id = ? AND reviewed_at LIKE ?",
+            (user_id, today_str() + "%"),
+        )
+        studied_today = int(row["n"] if row else 0)
+    except Exception:
+        studied_today = 0
     try:
         decks = catalog.decks_payload(db, user_id)
     except Exception:
@@ -799,6 +809,7 @@ def study_payload(db, user_id):
         "settings": settings,
         "waiting_at": waiting_at,
         "due_count": due_count,
+        "studied_today": studied_today,
         "decks": decks,
     }
 

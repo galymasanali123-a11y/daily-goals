@@ -7,7 +7,7 @@ import json
 
 from flask import abort, jsonify, redirect, render_template, request, session, url_for
 
-from content_i18n import course_field, lesson_field, level_field
+from content_i18n import course_field, from_packed, lesson_field, level_field
 from i18n import t
 from courses import (
     catalog_payload,
@@ -84,13 +84,52 @@ def _upsert_progress(db, user_id, course_slug, lesson_slug, fields, lesson):
     return _lesson_progress(db, user_id, course_slug, lesson_slug)
 
 
+def _grade_exercises(lesson, submitted):
+    results = []
+    correct_count = 0
+    answered = 0
+    for index, exercise in enumerate(lesson.get("exercises") or []):
+        expected = str(exercise.get("answer", "")).strip()
+        given = str(submitted.get(str(index), submitted.get(index, ""))).strip()
+        ok = bool(given) and given.lower() == expected.lower()
+        if given:
+            answered += 1
+        if ok:
+            correct_count += 1
+        results.append(
+            {
+                "index": index,
+                "correct": ok,
+                "expected": expected,
+                "given": given,
+                "answered": bool(given),
+                "explanation": exercise.get("explanation") or "",
+            }
+        )
+    return results, correct_count, answered
+
+
+def _public_results(lesson, submitted):
+    results, _, _ = _grade_exercises(lesson, submitted)
+    public = []
+    for item in results:
+        row = {"index": item["index"], "answered": item["answered"], "correct": item["correct"], "given": item["given"]}
+        if item["answered"]:
+            row["expected"] = item["expected"]
+            row["explanation"] = item["explanation"]
+        public.append(row)
+    return public
+
+
 def _neighbors(course_slug, level, lesson_slug):
     slugs = [item["slug"] for item in level["lessons"]]
     index = slugs.index(lesson_slug)
     prev_slug = slugs[index - 1] if index > 0 else None
     next_slug = slugs[index + 1] if index + 1 < len(slugs) else None
     titles = {
-        item["slug"]: lesson_field(course_slug, item["slug"], "title", item["title"])
+        item["slug"]: from_packed(
+            item, "title", fallback=lesson_field(course_slug, item["slug"], "title", item["title"])
+        )
         for item in level["lessons"]
     }
     return {
@@ -132,10 +171,16 @@ def register_learn_routes(app, get_db, login_required):
         db = get_db()
         progress = _lesson_progress(db, session["user_id"], course_slug, lesson_slug)
         lesson_view = dict(lesson)
-        lesson_view["title"] = lesson_field(course_slug, lesson_slug, "title", lesson["title"])
-        lesson_view["summary"] = lesson_field(course_slug, lesson_slug, "summary", lesson["summary"])
+        lesson_view["title"] = from_packed(
+            lesson, "title", fallback=lesson_field(course_slug, lesson_slug, "title", lesson["title"])
+        )
+        lesson_view["summary"] = from_packed(
+            lesson, "summary", fallback=lesson_field(course_slug, lesson_slug, "summary", lesson["summary"])
+        )
         level_view = dict(level)
-        level_view["title"] = level_field(course_slug, level_slug, "title", level["title"])
+        level_view["title"] = from_packed(
+            level, "title", fallback=level_field(course_slug, level_slug, "title", level["title"])
+        )
         course_view = {
             "slug": course["slug"],
             "title": course_field(course_slug, "title", course["title"]),
@@ -151,6 +196,7 @@ def register_learn_routes(app, get_db, login_required):
             neighbors=_neighbors(course_slug, level, lesson_slug),
             finished=lesson_complete(lesson, progress),
             topic=lesson_topic(course, level, lesson),
+            exercise_results=_public_results(lesson, progress.get("answers") or {}),
         )
 
     @app.route("/api/learn/<course_slug>/<level_slug>/<lesson_slug>/grammar", methods=["POST"])
@@ -205,23 +251,17 @@ def register_learn_routes(app, get_db, login_required):
         if not lesson:
             return jsonify({"error": t("err_not_found")}), 404
         payload = request.get_json(silent=True) or {}
-        submitted = payload.get("answers") or {}
-        results = []
-        correct_count = 0
-        for index, exercise in enumerate(lesson.get("exercises") or []):
-            expected = str(exercise.get("answer", "")).strip()
-            given = str(submitted.get(str(index), submitted.get(index, ""))).strip()
-            ok = given.lower() == expected.lower()
-            if ok:
-                correct_count += 1
-            results.append(
-                {
-                    "index": index,
-                    "correct": ok,
-                    "expected": expected,
-                    "explanation": exercise.get("explanation") or "",
-                }
-            )
+        current = _lesson_progress(get_db(), session["user_id"], course_slug, lesson_slug)
+        stored = dict(current.get("answers") or {})
+        if "index" in payload:
+            index = str(payload.get("index"))
+            stored[index] = str(payload.get("answer") or "")
+        else:
+            submitted = payload.get("answers") or {}
+            for key, value in submitted.items():
+                stored[str(key)] = str(value or "")
+        results, correct_count, answered = _grade_exercises(lesson, stored)
+        total = len(results)
         progress = _upsert_progress(
             get_db(),
             session["user_id"],
@@ -229,12 +269,35 @@ def register_learn_routes(app, get_db, login_required):
             lesson_slug,
             {
                 "exercises_correct": correct_count,
-                "exercises_total": len(results),
-                "answers": {str(index): str(submitted.get(str(index), submitted.get(index, ""))) for index in range(len(results))},
+        "exercises_total": answered,
+                "answers": stored,
             },
             lesson,
         )
-        return jsonify({"results": results, "correct": correct_count, "total": len(results), "progress": progress})
+        checked = None
+        if "index" in payload:
+            try:
+                checked = results[int(payload.get("index"))]
+            except (TypeError, ValueError, IndexError):
+                checked = None
+        public = []
+        for item in results:
+            row = {"index": item["index"], "answered": item["answered"], "correct": item["correct"]}
+            if item["answered"] and checked and item["index"] == checked["index"]:
+                row["expected"] = item["expected"]
+                row["explanation"] = item["explanation"]
+                row["given"] = item["given"]
+            public.append(row)
+        return jsonify(
+            {
+                "results": public,
+                "checked": checked,
+                "correct": correct_count,
+                "answered": answered,
+                "total": total,
+                "progress": progress,
+            }
+        )
 
     @app.route("/books/<int:book_id>")
     @login_required

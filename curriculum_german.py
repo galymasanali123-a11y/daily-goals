@@ -1,3 +1,7 @@
+from curriculum_common import level as _level
+from curriculum_german_extra import EXTRA_A1, LEVEL_A2, LEVEL_B1, LEVEL_B2
+
+
 def _ex(kind, prompt, answer, options=None, explanation=""):
     item = {"type": kind, "prompt": prompt, "answer": answer, "explanation": explanation}
     if options:
@@ -25,11 +29,11 @@ COURSE = {
     "slug": "german",
     "title": "Deutsch",
     "short": "DE",
-    "subtitle": "A1: приветствие, sein/haben, артикли и настоящее время",
+    "subtitle": "Грамматика, слова и задания — от A1 до B2",
     "category": "language",
     "accent": "#c2410c",
     "icon": "De",
-    "blurb": "Немецкий с нуля: род существительных сразу, честные таблицы и слова, которые пригодятся в быту.",
+    "blurb": "Немецкий с нуля до B2: род сразу, падежи, Perfekt, Konjunktiv и живые диалоги. Чтение опирается на открытый курс UW-Madison и сказки Гримм.",
     "levels": [
         {
             "slug": "a1",
@@ -194,3 +198,40 @@ COURSE = {
         }
     ],
 }
+
+COURSE["levels"][0]["lessons"].extend(EXTRA_A1)
+COURSE["levels"][0]["subtitle"] = "Первые фразы, род, падеж, кафе, город и речь"
+COURSE["levels"].extend(
+    [
+        _level(
+            "a2",
+            "A2",
+            {"en": "A2 · Everyday German", "ru": "A2 · Бытовой немецкий"},
+            {
+                "en": "Modals, Perfekt, separable verbs, dative, and travel talk",
+                "ru": "Модальные, Perfekt, отделяемые приставки, датив и дорога",
+            },
+            LEVEL_A2,
+        ),
+        _level(
+            "b1",
+            "B1",
+            {"en": "B1 · Independent German", "ru": "B1 · Самостоятельный немецкий"},
+            {
+                "en": "Präteritum, relative clauses, Konjunktiv II, passive — with speaking labs",
+                "ru": "Präteritum, относительные предложения, Konjunktiv II, пассив и речь",
+            },
+            LEVEL_B1,
+        ),
+        _level(
+            "b2",
+            "B2",
+            {"en": "B2 · Formal and fluent", "ru": "B2 · Формально и бегло"},
+            {
+                "en": "Reported speech, nominal style, argumentation, and fluency",
+                "ru": "Косвенная речь, номинальный стиль, аргументация и беглость",
+            },
+            LEVEL_B2,
+        ),
+    ]
+)

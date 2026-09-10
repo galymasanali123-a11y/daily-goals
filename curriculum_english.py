@@ -1,3 +1,8 @@
+from curriculum_common import level as _level
+from curriculum_english_b2 import LEVEL_B2
+from curriculum_english_extra import EXTRA_A1, EXTRA_A2, EXTRA_B1
+
+
 def _ex(kind, prompt, answer, options=None, explanation=""):
     item = {"type": kind, "prompt": prompt, "answer": answer, "explanation": explanation}
     if options:
@@ -25,7 +30,7 @@ COURSE = {
     "slug": "english",
     "title": "English",
     "short": "EN",
-    "subtitle": "Грамматика, слова и задания — от A1 до B1",
+    "subtitle": "Грамматика, слова и задания — от A1 до B2",
     "category": "language",
     "accent": "#0d9488",
     "icon": "Aa",
@@ -721,3 +726,19 @@ COURSE = {
         },
     ],
 }
+
+COURSE["levels"][0]["lessons"].extend(EXTRA_A1)
+COURSE["levels"][1]["lessons"].extend(EXTRA_A2)
+COURSE["levels"][2]["lessons"].extend(EXTRA_B1)
+COURSE["levels"].append(
+    _level(
+        "b2",
+        "B2",
+        {"en": "B2 · Independent user", "ru": "B2 · Свободный пользователь"},
+        {
+            "en": "Narrative tenses, mixed conditionals, register, debate, and fluency labs",
+            "ru": "Повествование, смешанные условия, регистр, спор и лаборатории речи",
+        },
+        LEVEL_B2,
+    )
+)

@@ -25,77 +25,43 @@ CARD_INSERT = (
     "ON CONFLICT(user_id, external_id) DO NOTHING"
 )
 
-DECKS = [
-    {
-        "id": "english-a1",
-        "kind": "course",
-        "course": "english",
-        "levels": ["a1"],
-        "lang": "en",
-        "level": "A1",
-        "accent": "#0d9488",
-        "title": {"en": "English A1", "ru": "Английский A1"},
-        "blurb": {
-            "en": "Greetings, to be, articles, Present Simple — words from the English course.",
-            "ru": "Приветствия, to be, артикли, Present Simple — слова из курса английского.",
-        },
-    },
-    {
-        "id": "english-a2",
-        "kind": "course",
-        "course": "english",
-        "levels": ["a2"],
-        "lang": "en",
-        "level": "A2",
-        "accent": "#0d9488",
-        "title": {"en": "English A2", "ru": "Английский A2"},
-        "blurb": {
-            "en": "Past, present continuous, comparatives, plans, and modals.",
-            "ru": "Прошедшее, Present Continuous, сравнения, планы и модальные глаголы.",
-        },
-    },
-    {
-        "id": "english-b1",
-        "kind": "course",
-        "course": "english",
-        "levels": ["b1"],
-        "lang": "en",
-        "level": "B1",
-        "accent": "#0d9488",
-        "title": {"en": "English B1", "ru": "Английский B1"},
-        "blurb": {
-            "en": "Present Perfect, conditionals, the passive, relative clauses.",
-            "ru": "Present Perfect, условия, пассив и относительные предложения.",
-        },
-    },
-    {
-        "id": "german-a1",
-        "kind": "course",
-        "course": "german",
-        "levels": ["a1"],
-        "lang": "de",
-        "level": "A1",
-        "accent": "#ea580c",
-        "title": {"en": "Deutsch A1", "ru": "Немецкий A1"},
-        "blurb": {
-            "en": "Greetings, sein/haben, articles, and present tense from the German course.",
-            "ru": "Приветствия, sein/haben, артикли и настоящее время из курса немецкого.",
-        },
-    },
-    {
-        "id": "medicine",
-        "kind": "course",
-        "course": "medicine",
-        "levels": None,
-        "lang": "en",
-        "level": "Intro",
-        "accent": "#7c3aed",
-        "title": {"en": "Medicine", "ru": "Медицина"},
-        "blurb": {
-            "en": "Core terms from the medicine course — anatomy, systems, and clinic words.",
-            "ru": "Основные термины из курса медицины — анатомия, системы и клиника.",
-        },
-    },
+_COURSE_LANG = {
+    "english": "en",
+    "german": "de",
+    "korean": "ko",
+    "medicine": "en",
+}
+
+
+def _auto_decks():
+    items = []
+    for course in BY_SLUG.values():
+        for course_level in course["levels"]:
+            subtitle_i18n = course_level.get("subtitle_i18n") or {}
+            title_i18n = course_level.get("title_i18n") or {}
+            items.append(
+                {
+                    "id": f"{course['slug']}-{course_level['slug']}",
+                    "kind": "course",
+                    "course": course["slug"],
+                    "levels": [course_level["slug"]],
+                    "lang": _COURSE_LANG.get(course["slug"], "en"),
+                    "level": course_level["short"],
+                    "accent": course["accent"],
+                    "title": {
+                        "en": title_i18n.get("en") or f"{course['title']} {course_level['short']}",
+                        "ru": title_i18n.get("ru") or f"{course['title']} {course_level['short']}",
+                    },
+                    "blurb": {
+                        "en": subtitle_i18n.get("en") or course_level.get("subtitle") or "",
+                        "ru": subtitle_i18n.get("ru") or course_level.get("subtitle") or "",
+                    },
+                }
+            )
+    return items
+
+
+DECKS = _auto_decks() + [
     {
         "id": "goethe-a1",
         "kind": "file",
@@ -125,6 +91,30 @@ BOOKS = [
         },
     },
     {
+        "id": "english-b1-reader",
+        "filename": "english-b1-reader.md",
+        "content_type": "text/markdown",
+        "lang": "en",
+        "accent": "#0f766e",
+        "title": {"en": "English B1 graded reader", "ru": "Читалка English B1"},
+        "blurb": {
+            "en": "Work, health, the city, disagreement — plus Aesop. Built for B1 speaking.",
+            "ru": "Работа, здоровье, город, спор — плюс Эзоп. Для устной речи B1.",
+        },
+    },
+    {
+        "id": "english-b2-holmes",
+        "filename": "english-b2-holmes.md",
+        "content_type": "text/markdown",
+        "lang": "en",
+        "accent": "#115e59",
+        "title": {"en": "A Scandal in Bohemia (study)", "ru": "Скандал в Богемии — разбор"},
+        "blurb": {
+            "en": "Public-domain Sherlock Holmes with B2 grammar, vocab, and speaking tasks.",
+            "ru": "Шерлок Холмс из общественного достояния: грамматика B2, слова и задания на речь.",
+        },
+    },
+    {
         "id": "german-a1-reader",
         "filename": "german-a1-reader.md",
         "content_type": "text/markdown",
@@ -132,8 +122,56 @@ BOOKS = [
         "accent": "#ea580c",
         "title": {"en": "Deutsch A1 Lesebuch", "ru": "Читалка Deutsch A1"},
         "blurb": {
-            "en": "Very simple German texts: café, city, family.",
-            "ru": "Очень простые немецкие тексты: кафе, город, семья.",
+            "en": "Very simple German texts: café, city, family, doctor.",
+            "ru": "Очень простые немецкие тексты: кафе, город, семья, врач.",
+        },
+    },
+    {
+        "id": "german-grimm-rotkaeppchen",
+        "filename": "german-grimm-rotkaeppchen.md",
+        "content_type": "text/markdown",
+        "lang": "de",
+        "accent": "#c2410c",
+        "title": {"en": "Rotkäppchen (Grimm 1857)", "ru": "Красная Шапочка (Гримм, 1857)"},
+        "blurb": {
+            "en": "Public-domain Märchen with glossary, Präteritum notes, and a modern rewrite.",
+            "ru": "Сказка из общественного достояния: словарь, Präteritum и современный пересказ.",
+        },
+    },
+    {
+        "id": "german-reading-companion",
+        "filename": "german-reading-companion.md",
+        "content_type": "text/markdown",
+        "lang": "de",
+        "accent": "#9a3412",
+        "title": {"en": "Reading German companion", "ru": "Спутник чтения по-немецки"},
+        "blurb": {
+            "en": "Original companion to the UW-Madison open textbook (Martin & Ng, CC BY-NC-SA).",
+            "ru": "Оригинальный спутник открытого учебника UW-Madison (Martin & Ng, CC BY-NC-SA).",
+        },
+    },
+    {
+        "id": "korean-hangul-reader",
+        "filename": "korean-hangul-reader.md",
+        "content_type": "text/markdown",
+        "lang": "ko",
+        "accent": "#2563eb",
+        "title": {"en": "Hangul primer and dialogues", "ru": "Хангыль и диалоги"},
+        "blurb": {
+            "en": "Syllable blocks plus store, subway, clinic, and work dialogues A1–B2.",
+            "ru": "Слоговые блоки и диалоги: магазин, метро, клиника, работа — A1–B2.",
+        },
+    },
+    {
+        "id": "korean-b2-reader",
+        "filename": "korean-b2-reader.md",
+        "content_type": "text/markdown",
+        "lang": "ko",
+        "accent": "#1d4ed8",
+        "title": {"en": "Korean B2 reader", "ru": "Читалка Korean B2"},
+        "blurb": {
+            "en": "News-style text, workplace email, clinic talk, and an opinion essay.",
+            "ru": "Новостной абзац, рабочее письмо, клиника и эссе-мнение.",
         },
     },
     {
@@ -146,6 +184,42 @@ BOOKS = [
         "blurb": {
             "en": "A short plain-language intro to body systems and clinic words.",
             "ru": "Короткое введение простыми словами: системы тела и клиника.",
+        },
+    },
+    {
+        "id": "openstax-anatomy-companion",
+        "filename": "openstax-anatomy-companion.md",
+        "content_type": "text/markdown",
+        "lang": "en",
+        "accent": "#6d28d9",
+        "title": {"en": "OpenStax A&P companion", "ru": "Спутник OpenStax A&P"},
+        "blurb": {
+            "en": "Original study map of OpenStax Anatomy and Physiology 2e (CC BY-NC-SA).",
+            "ru": "Оригинальная карта OpenStax Anatomy and Physiology 2e (CC BY-NC-SA).",
+        },
+    },
+    {
+        "id": "grays-anatomy-heart",
+        "filename": "grays-anatomy-heart.md",
+        "content_type": "text/markdown",
+        "lang": "en",
+        "accent": "#5b21b6",
+        "title": {"en": "Gray’s Anatomy: the heart (1918)", "ru": "Gray’s Anatomy: сердце (1918)"},
+        "blurb": {
+            "en": "Public-domain heart chapter with modern clinical English beside it.",
+            "ru": "Глава о сердце из общественного достояния и рядом — современный клинический английский.",
+        },
+    },
+    {
+        "id": "openstax-microbiology-companion",
+        "filename": "openstax-microbiology-companion.md",
+        "content_type": "text/markdown",
+        "lang": "en",
+        "accent": "#7e22ce",
+        "title": {"en": "OpenStax Microbiology companion", "ru": "Спутник OpenStax Microbiology"},
+        "blurb": {
+            "en": "Original companion to OpenStax Microbiology 2e — infection language, not treatment.",
+            "ru": "Оригинальный спутник OpenStax Microbiology 2e — язык инфекции, не лечение.",
         },
     },
     {

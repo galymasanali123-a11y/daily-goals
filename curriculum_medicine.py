@@ -1,3 +1,7 @@
+from curriculum_common import level as _level
+from curriculum_medicine_extra import EXTRA_FOUNDATION, LEVEL_ANATOMY, LEVEL_CLINIC
+
+
 def _ex(kind, prompt, answer, options=None, explanation=""):
     item = {"type": kind, "prompt": prompt, "answer": answer, "explanation": explanation}
     if options:
@@ -25,11 +29,11 @@ COURSE = {
     "slug": "medicine",
     "title": "Medicine",
     "short": "MD",
-    "subtitle": "Термины, системы органов, витальные признаки и симптомы",
+    "subtitle": "Термины, анатомия по OpenStax и клинический английский",
     "category": "medicine",
     "accent": "#be185d",
     "icon": "Rx",
-    "blurb": "Не учебник терапии, а ясный каркас: из чего состоит слово, как устроено тело, что измерять и как назвать жалобу по-английски.",
+    "blurb": "Не учебник терапии, а сильная база: словообразование, системы тела по открытому OpenStax A&P 2e, Gray’s Anatomy 1918 и клинический английский для жалоб и разбора случая.",
     "levels": [
         {
             "slug": "foundation",
@@ -221,3 +225,30 @@ COURSE = {
         }
     ],
 }
+
+COURSE["levels"][0]["lessons"].extend(EXTRA_FOUNDATION)
+COURSE["levels"][0]["subtitle"] = "Язык медицины, витальные признаки, анамнез и безопасность"
+COURSE["levels"].extend(
+    [
+        _level(
+            "anatomy",
+            "A&P",
+            {"en": "Anatomy · OpenStax path", "ru": "Анатомия · путь OpenStax"},
+            {
+                "en": "Cells to endocrine: original lessons mapped to OpenStax A&P 2e",
+                "ru": "От клетки до эндокринной системы: уроки по карте OpenStax A&P 2e",
+            },
+            LEVEL_ANATOMY,
+        ),
+        _level(
+            "clinic",
+            "Clinic",
+            {"en": "Clinic · language", "ru": "Клиника · язык"},
+            {
+                "en": "Infection vocabulary, case talk, and plain-language fluency — not treatment",
+                "ru": "Инфекция, разбор случая и ясные формулировки — не лечение",
+            },
+            LEVEL_CLINIC,
+        ),
+    ]
+)

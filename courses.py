@@ -2,7 +2,7 @@
 
 from markupsafe import Markup, escape
 
-from content_i18n import course_field, lesson_field, level_field
+from content_i18n import course_field, from_packed, lesson_field, level_field
 from curriculum import BY_SLUG, course_counts
 from i18n import current_lang, t
 
@@ -66,9 +66,9 @@ def course_payload(course, progress, lang=None):
             lessons.append(
                 {
                     "slug": lesson["slug"],
-                    "title": lesson_field(slug, lesson["slug"], "title", lesson["title"], lang),
+                    "title": from_packed(lesson, "title", lang, lesson_field(slug, lesson["slug"], "title", lesson["title"], lang)),
                     "minutes": lesson["minutes"],
-                    "summary": lesson_field(slug, lesson["slug"], "summary", lesson["summary"], lang),
+                    "summary": from_packed(lesson, "summary", lang, lesson_field(slug, lesson["slug"], "summary", lesson["summary"], lang)),
                     "words": len(lesson.get("vocab") or []),
                     "exercises": len(lesson.get("exercises") or []),
                     "progress": item,
@@ -80,8 +80,8 @@ def course_payload(course, progress, lang=None):
             {
                 "slug": level["slug"],
                 "short": level["short"],
-                "title": level_field(slug, level["slug"], "title", level["title"], lang),
-                "subtitle": level_field(slug, level["slug"], "subtitle", level["subtitle"], lang),
+                "title": from_packed(level, "title", lang, level_field(slug, level["slug"], "title", level["title"], lang)),
+                "subtitle": from_packed(level, "subtitle", lang, level_field(slug, level["slug"], "subtitle", level["subtitle"], lang)),
                 "lessons": lessons,
                 "done": level_done,
                 "total": len(level["lessons"]),
@@ -154,11 +154,30 @@ def render_sections(sections):
             items = "".join(f"<li>{escape(item)}</li>" for item in section.get("items") or [])
             blocks.append(f"<ol>{items}</ol>")
         elif kind == "example":
-            en = escape(section.get("en", ""))
+            text = escape(
+                section.get("text")
+                or section.get("en")
+                or section.get("de")
+                or section.get("ko")
+                or ""
+            )
             ru = escape(section.get("ru", ""))
+            lang_attr = escape(section.get("lang") or ("ko" if section.get("ko") else "en"))
             blocks.append(
-                f'<figure class="lesson-example"><blockquote lang="en">{en}</blockquote>'
+                f'<figure class="lesson-example"><blockquote lang="{lang_attr}">{text}</blockquote>'
                 f'<figcaption>{ru}</figcaption></figure>'
+            )
+        elif kind == "dialogue":
+            rows = []
+            lang_attr = escape(section.get("lang") or "en")
+            for line in section.get("lines") or []:
+                speaker = escape(line.get("speaker") or "")
+                text = escape(line.get("text") or "")
+                rows.append(f"<p><strong>{speaker}:</strong> {text}</p>")
+            caption = escape(section.get("ru") or "")
+            cap = f"<figcaption>{caption}</figcaption>" if caption else ""
+            blocks.append(
+                f'<figure class="lesson-example" lang="{lang_attr}">{"".join(rows)}{cap}</figure>'
             )
         elif kind == "table":
             headers = section.get("headers") or []

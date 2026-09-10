@@ -3,44 +3,72 @@
 {% block content %}
 {% include "_nav.html" %}
 
-<div id="anki-counts" class="anki-counts" hidden>
-  <span class="new" id="count-new"></span>
-  <span class="learn" id="count-learn"></span>
-  <span class="review" id="count-review"></span>
+<div class="deck-tabs" id="deck-tabs">
+  <button type="button" class="topic-chip active" data-pane="decks">{{ t("decks_tab") }}</button>
+  <button type="button" class="topic-chip" data-pane="catalog">{{ t("get_more") }}</button>
 </div>
 
-<button type="button" class="topic-toggle" id="topic-toggle"></button>
-<div id="topic-filter" class="topic-filter" style="display:none;"></div>
-
-<div id="empty-cards" class="card empty-state" style="display:none;">
-  {{ t("cards_empty") }}
-</div>
-
-<div id="all-caught-up" class="card empty-state" style="display:none;">
-  {{ t("caught_up") }}
-</div>
-
-<div id="study-area" style="display:none;">
-  <div id="study-progress" class="study-progress"></div>
-  <div class="card study-card" id="study-card" role="button" tabindex="0">
-    <div class="study-topic" id="study-topic"></div>
-    <div class="study-question" id="study-question"></div>
-    <div class="study-answer" id="study-answer" style="display:none;"></div>
-    <div class="study-example" id="study-example" style="display:none;"></div>
+<div id="decks-pane">
+  <p class="page-lead" id="deck-hint">{{ t("select_deck_hint") }}</p>
+  <div class="deck-board" id="deck-board">
+    <div class="deck-head">
+      <span>{{ t("col_deck") }}</span>
+      <span class="col-new">{{ t("col_new") }}</span>
+      <span class="col-learn">{{ t("col_learn") }}</span>
+      <span class="col-due">{{ t("col_due") }}</span>
+    </div>
+    <div id="deck-tree"></div>
   </div>
-  <button class="btn-reveal" id="reveal-btn">{{ t("show_answer") }}</button>
-  <div class="study-actions" id="study-actions" style="display:none;">
-    <button class="btn-again" data-confidence="1">{{ t("again") }}<span class="interval" data-preview="1"></span></button>
-    <button class="btn-hard" data-confidence="2">{{ t("hard") }}<span class="interval" data-preview="2"></span></button>
-    <button class="btn-good" data-confidence="3">{{ t("good") }}<span class="interval" data-preview="3"></span></button>
-    <button class="btn-easy" data-confidence="4">{{ t("easy") }}<span class="interval" data-preview="4"></span></button>
-  </div>
-  <button type="button" class="ghost-link undo-review" id="undo-review" hidden>{{ t("undo") }}</button>
+  <p class="deck-footer" id="studied-today"></p>
 </div>
 
-<div class="card" id="deck-catalog">
-  <h2>{{ t("catalog_decks") }}</h2>
-  <div id="deck-list" class="catalog-list"></div>
+<div id="study-pane" hidden>
+  <div class="back-row">
+    <button type="button" class="ghost-link" id="back-to-decks">← {{ t("back_to_decks") }}</button>
+  </div>
+  <div id="anki-counts" class="anki-counts" hidden>
+    <span class="new" id="count-new"></span>
+    <span class="learn" id="count-learn"></span>
+    <span class="review" id="count-review"></span>
+  </div>
+  <div id="empty-cards" class="card empty-state" style="display:none;">
+    {{ t("cards_empty") }}
+  </div>
+  <div id="all-caught-up" class="card empty-state" style="display:none;">
+    {{ t("caught_up") }}
+  </div>
+  <div id="study-area" style="display:none;">
+    <div id="study-progress" class="study-progress"></div>
+    <button type="button" class="flip-card" id="study-card">
+      <div class="flip-inner">
+        <div class="flip-face flip-front">
+          <div class="study-topic" id="study-topic"></div>
+          <div class="study-question" id="study-question"></div>
+          <p class="flip-hint">{{ t("show_answer") }}</p>
+        </div>
+        <div class="flip-face flip-back">
+          <div class="study-topic" id="study-topic-back"></div>
+          <div class="study-answer" id="study-answer"></div>
+          <div class="study-example" id="study-example"></div>
+        </div>
+      </div>
+    </button>
+    <button class="btn-reveal" id="reveal-btn">{{ t("show_answer") }}</button>
+    <div class="study-actions" id="study-actions" style="display:none;">
+      <button class="btn-again" data-confidence="1">{{ t("again") }}<span class="interval" data-preview="1"></span></button>
+      <button class="btn-hard" data-confidence="2">{{ t("hard") }}<span class="interval" data-preview="2"></span></button>
+      <button class="btn-good" data-confidence="3">{{ t("good") }}<span class="interval" data-preview="3"></span></button>
+      <button class="btn-easy" data-confidence="4">{{ t("easy") }}<span class="interval" data-preview="4"></span></button>
+    </div>
+    <button type="button" class="ghost-link undo-review" id="undo-review" hidden>{{ t("undo") }}</button>
+  </div>
+</div>
+
+<div id="catalog-pane" hidden>
+  <div class="card" id="deck-catalog">
+    <h2>{{ t("catalog_decks") }}</h2>
+    <div id="deck-list" class="catalog-list"></div>
+  </div>
 </div>
 {% endblock %}
 {% block scripts %}

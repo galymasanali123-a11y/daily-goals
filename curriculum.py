@@ -2,9 +2,10 @@
 
 from curriculum_english import COURSE as ENGLISH
 from curriculum_german import COURSE as GERMAN
+from curriculum_korean import COURSE as KOREAN
 from curriculum_medicine import COURSE as MEDICINE
 
-COURSES = [ENGLISH, GERMAN, MEDICINE]
+COURSES = [ENGLISH, GERMAN, KOREAN, MEDICINE]
 BY_SLUG = {course["slug"]: course for course in COURSES}
 
 

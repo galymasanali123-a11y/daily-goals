@@ -2,12 +2,12 @@
   "use strict";
 
   const topicToggle = document.getElementById("topic-toggle");
-  const topicFilter = document.getElementById("topic-filter");
   const emptyCards = document.getElementById("empty-cards");
   const allCaughtUp = document.getElementById("all-caught-up");
   const studyArea = document.getElementById("study-area");
   const studyProgress = document.getElementById("study-progress");
   const studyTopic = document.getElementById("study-topic");
+  const studyTopicBack = document.getElementById("study-topic-back");
   const studyQuestion = document.getElementById("study-question");
   const studyAnswer = document.getElementById("study-answer");
   const studyExample = document.getElementById("study-example");
@@ -18,6 +18,13 @@
   const toast = document.getElementById("toast");
   const countsBox = document.getElementById("anki-counts");
   const deckList = document.getElementById("deck-list");
+  const deckTree = document.getElementById("deck-tree");
+  const decksPane = document.getElementById("decks-pane");
+  const studyPane = document.getElementById("study-pane");
+  const catalogPane = document.getElementById("catalog-pane");
+  const deckTabs = document.getElementById("deck-tabs");
+  const studiedEl = document.getElementById("studied-today");
+  const backBtn = document.getElementById("back-to-decks");
   if (!revealBtn || !studyActions) return;
 
   let pageAlive = true;
@@ -28,13 +35,20 @@
   const params = new URLSearchParams(window.location.search);
   let allCards = [];
   let decks = [];
-  let selectedTopic = params.get("topic") || "All";
+  let selectedPath = params.get("topic") || "";
+  let selectedKey = "";
   let queue = [];
   let queueTotal = 0;
   let revealed = false;
-  let topicFilterExpanded = false;
   let lastReview = null;
   let busy = false;
+  let studiedToday = 0;
+  let collapsed = {};
+  try {
+    collapsed = JSON.parse(localStorage.getItem("deck-collapsed") || "{}") || {};
+  } catch (error) {
+    collapsed = {};
+  }
 
   function showToast(message) {
     if (!onPage() || !toast || !message) return;
@@ -66,43 +80,143 @@
     return div.innerHTML;
   }
 
-  function topicLabel(topic) {
-    return topic === "All" ? t("topic_all") : String(topic).replace(/_/g, " ");
+  const LANG_HEAD = {
+    English: "deck_english",
+    Deutsch: "deck_german",
+    German: "deck_german",
+    "한국어": "deck_korean",
+    Korean: "deck_korean",
+    "Английский": "deck_english",
+    "Немецкий": "deck_german",
+    "Корейский": "deck_korean",
+  };
+  const MED_HEAD = { Medicine: 1, "Медицина": 1 };
+
+  function topicParts(topic) {
+    const raw = String(topic || "").replace(/_/g, " ").trim() || "Cards";
+    let bits;
+    if (raw.includes(" / ")) bits = raw.split(" / ").map((part) => part.trim());
+    else if (raw.includes(" · ")) bits = raw.split(" · ").map((part) => part.trim());
+    else bits = [raw];
+    const head = bits[0];
+    if (LANG_HEAD[head]) {
+      return [t("folder_languages"), t(LANG_HEAD[head]), bits[1] || t("topic_all")];
+    }
+    if (MED_HEAD[head]) {
+      return [t("category_medicine"), bits[1] || t("topic_all")];
+    }
+    return [t("folder_other"), head];
   }
 
-  function renderTopicFilter(topics) {
-    if (!onPage() || !topicFilter) return;
-    const chips = ["All", ...topics];
-    if (selectedTopic !== "All" && !topics.includes(selectedTopic)) chips.push(selectedTopic);
-    topicFilter.innerHTML = chips
-      .map((topic) => `<span class="topic-chip ${topic === selectedTopic ? "active" : ""}" data-topic="${escapeHTML(topic)}">${escapeHTML(topicLabel(topic))}</span>`)
-      .join("");
-    updateTopicToggleLabel();
+  function emptyCounts() {
+    return { new: 0, learn: 0, due: 0, total: 0 };
   }
 
-  function updateTopicToggleLabel() {
-    if (!topicToggle) return;
-    const arrow = topicFilterExpanded ? "▴" : "▾";
-    topicToggle.textContent = `📂 ${t("topic_toggle", { topic: topicLabel(selectedTopic) })} ${arrow}`;
+  function addCounts(target, extra) {
+    target.new += extra.new;
+    target.learn += extra.learn;
+    target.due += extra.due;
+    target.total += extra.total;
   }
 
-  function setTopicFilterExpanded(expanded) {
-    topicFilterExpanded = expanded;
-    if (topicFilter) topicFilter.style.display = expanded ? "" : "none";
-    updateTopicToggleLabel();
+  function cardCounts(card) {
+    const queue = Number(card.queue || 0);
+    const counts = emptyCounts();
+    counts.total = 1;
+    if (queue === 0) counts.new = 1;
+    else if (queue === 1 || queue === 3) counts.learn = 1;
+    else if (card.due_today) counts.due = 1;
+    return counts;
   }
 
-  if (topicToggle) {
-    topicToggle.addEventListener("click", () => setTopicFilterExpanded(!topicFilterExpanded));
+  function buildTree() {
+    const root = { key: "", name: t("topic_all"), depth: 0, children: {}, cards: [], counts: emptyCounts() };
+    allCards.forEach((card) => {
+      const parts = topicParts(card.topic);
+      let node = root;
+      addCounts(node.counts, cardCounts(card));
+      node.cards.push(card);
+      parts.forEach((name, index) => {
+        if (!node.children[name]) {
+          const key = parts.slice(0, index + 1).join("\t");
+          node.children[name] = { key, name, depth: index + 1, children: {}, cards: [], counts: emptyCounts() };
+        }
+        node = node.children[name];
+        node.cards.push(card);
+        addCounts(node.counts, cardCounts(card));
+      });
+    });
+    return root;
   }
-  if (topicFilter) {
-    topicFilter.addEventListener("click", (event) => {
-      const chip = event.target.closest(".topic-chip");
-      if (!chip) return;
-      selectedTopic = chip.dataset.topic;
-      renderTopicFilter([...new Set(allCards.map((card) => card.topic))].sort());
-      buildQueue();
-      setTopicFilterExpanded(false);
+
+  function childList(node) {
+    return Object.values(node.children).sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
+  }
+
+  function saveCollapsed() {
+    try {
+      localStorage.setItem("deck-collapsed", JSON.stringify(collapsed));
+    } catch (error) {}
+  }
+
+  function isCollapsed(key) {
+    if (key in collapsed) return !!collapsed[key];
+    return false;
+  }
+
+  function renderTree() {
+    if (!deckTree) return;
+    const root = buildTree();
+    const rows = [];
+
+    function walk(node, hide) {
+      const kids = childList(node);
+      const hasKids = kids.length > 0;
+      const folded = hasKids && isCollapsed(node.key);
+      if (!hide) {
+        const dueNow = node.cards.filter((card) => card.due_today).length;
+        const active = node.key === selectedKey ? " is-active" : "";
+        const chevron = hasKids
+          ? `<button type="button" class="deck-chevron" data-toggle="${escapeHTML(node.key)}" aria-label="${folded ? "▸" : "▾"}">${folded ? "▸" : "▾"}</button>`
+          : `<span class="deck-chevron-spacer"></span>`;
+        rows.push(`<div class="deck-row${active}" data-key="${escapeHTML(node.key)}" data-study="${escapeHTML(node.key)}" data-due="${dueNow}" style="--depth:${node.depth}">
+          ${chevron}
+          <button type="button" class="deck-name" data-study="${escapeHTML(node.key)}">${escapeHTML(node.name)}</button>
+          <span class="col-new">${node.counts.new || ""}</span>
+          <span class="col-learn">${node.counts.learn || ""}</span>
+          <span class="col-due">${node.counts.due || ""}</span>
+        </div>`);
+      }
+      kids.forEach((child) => walk(child, hide || folded));
+    }
+
+    childList(root).forEach((child) => walk(child, false));
+    if (!rows.length) {
+      deckTree.innerHTML = `<p class="empty-state">${t("cards_empty")}</p>`;
+    } else {
+      deckTree.innerHTML = rows.join("");
+    }
+    if (studiedEl) studiedEl.textContent = t("studied_today", { n: studiedToday });
+  }
+
+  function showPane(name) {
+    if (decksPane) decksPane.hidden = name !== "decks";
+    if (studyPane) studyPane.hidden = name !== "study";
+    if (catalogPane) catalogPane.hidden = name !== "catalog";
+    if (deckTabs) {
+      deckTabs.querySelectorAll("[data-pane]").forEach((chip) => {
+        chip.classList.toggle("active", chip.dataset.pane === name);
+      });
+      deckTabs.hidden = name === "study";
+    }
+  }
+
+  function cardsForKey(key) {
+    if (!key) return allCards;
+    const parts = key.split("\t");
+    return allCards.filter((card) => {
+      const path = topicParts(card.topic);
+      return parts.every((part, index) => path[index] === part);
     });
   }
 
@@ -150,8 +264,9 @@
   }
 
   function buildQueue() {
-    const dueCards = allCards.filter((card) => card.due_today);
-    queue = selectedTopic === "All" ? dueCards.slice() : dueCards.filter((card) => card.topic === selectedTopic);
+    const pool = cardsForKey(selectedKey);
+    const dueCards = pool.filter((card) => card.due_today);
+    queue = dueCards.slice();
     queueTotal = queue.length;
     showNextCard();
   }
@@ -159,8 +274,8 @@
   function showNextCard() {
     if (!onPage()) return;
     revealed = false;
-    studyAnswer.style.display = "none";
-    studyExample.style.display = "none";
+    if (studyCard) studyCard.classList.remove("is-flipped");
+    if (studyExample) studyExample.style.display = "none";
     revealBtn.style.display = "";
     studyActions.style.display = "none";
     if (undoBtn) undoBtn.hidden = !lastReview;
@@ -175,7 +290,10 @@
 
     if (queue.length === 0) {
       studyArea.style.display = "none";
-      if (allCaughtUp) allCaughtUp.style.display = "";
+      if (allCaughtUp) {
+        allCaughtUp.style.display = "";
+        allCaughtUp.textContent = t("no_cards_in_deck");
+      }
       return;
     }
     if (allCaughtUp) allCaughtUp.style.display = "none";
@@ -183,18 +301,31 @@
 
     const card = queue[0];
     studyProgress.textContent = t("progress_of", { current: queueTotal - queue.length + 1, total: queueTotal });
-    studyTopic.textContent = topicLabel(card.topic);
+    const topic = String(card.topic || "").replace(/_/g, " ");
+    if (studyTopic) studyTopic.textContent = topic;
+    if (studyTopicBack) studyTopicBack.textContent = topic;
     studyQuestion.textContent = card.question;
     studyAnswer.textContent = card.answer;
-    studyExample.textContent = card.example || "";
+    if (studyExample) {
+      studyExample.textContent = card.example || "";
+      studyExample.style.display = "none";
+    }
     applyPreviews(card);
+  }
+
+  function startStudy(key) {
+    selectedKey = key;
+    selectedPath = key;
+    renderTree();
+    showPane("study");
+    buildQueue();
   }
 
   function reveal() {
     if (!onPage() || revealed || queue.length === 0) return;
     revealed = true;
-    studyAnswer.style.display = "";
-    if (queue[0] && queue[0].example) studyExample.style.display = "";
+    if (studyCard) studyCard.classList.add("is-flipped");
+    if (queue[0] && queue[0].example && studyExample) studyExample.style.display = "";
     revealBtn.style.display = "none";
     studyActions.style.display = "grid";
   }
@@ -202,7 +333,7 @@
   revealBtn.addEventListener("click", reveal);
   if (studyCard) {
     studyCard.addEventListener("click", (event) => {
-      if (event.target.closest("button")) return;
+      if (event.target.closest("button") && event.target.closest(".study-actions")) return;
       if (!revealed) reveal();
     });
   }
@@ -225,6 +356,7 @@
     };
     queue.shift();
     card.due_today = false;
+    studiedToday += 1;
     showNextCard();
     busy = true;
     try {
@@ -232,6 +364,7 @@
     } catch (error) {
       queue.unshift(card);
       lastReview = null;
+      studiedToday = Math.max(0, studiedToday - 1);
       if (onPage()) {
         showNextCard();
         showToast(error.message);
@@ -255,6 +388,7 @@
       queue.unshift(card);
       card.due_today = true;
       queueTotal += 1;
+      studiedToday = Math.max(0, studiedToday - 1);
       showNextCard();
       try {
         await api(`/api/cards/${card.id}/restore`, { method: "POST", body: JSON.stringify(snapshot) });
@@ -266,7 +400,7 @@
 
   document.addEventListener("keydown", onKey);
   function onKey(event) {
-    if (!onPage() || !document.getElementById("study-area")) return;
+    if (!onPage() || studyPane && studyPane.hidden) return;
     if (!revealed) {
       if (event.key === " " || event.key === "Enter") {
         event.preventDefault();
@@ -276,6 +410,34 @@
     }
     const map = { 1: 1, 2: 2, 3: 3, 4: 4 };
     if (map[event.key]) submitReview(map[event.key]);
+  }
+
+  if (deckTabs) {
+    deckTabs.addEventListener("click", (event) => {
+      const chip = event.target.closest("[data-pane]");
+      if (!chip) return;
+      showPane(chip.dataset.pane);
+    });
+  }
+  if (backBtn) {
+    backBtn.addEventListener("click", () => {
+      showPane("decks");
+      renderTree();
+    });
+  }
+  if (deckTree) {
+    deckTree.addEventListener("click", (event) => {
+      const toggle = event.target.closest("[data-toggle]");
+      if (toggle) {
+        const key = toggle.dataset.toggle;
+        collapsed[key] = !isCollapsed(key);
+        saveCollapsed();
+        renderTree();
+        return;
+      }
+      const study = event.target.closest("[data-study]");
+      if (study) startStudy(study.dataset.study);
+    });
   }
 
   if (deckList) {
@@ -293,6 +455,7 @@
           await api(`/api/catalog/decks/${id}`, { method: "DELETE" });
         }
         await load();
+        showPane("decks");
       } catch (error) {
         showToast(error.message);
       }
@@ -303,10 +466,16 @@
     if (!onPage() || !data) return;
     allCards = data.cards || [];
     decks = data.decks || decks;
+    studiedToday = data.studied_today || 0;
     renderCounts(data.counts);
-    renderTopicFilter(data.topics || []);
     renderDecks();
-    buildQueue();
+    renderTree();
+    if (params.get("topic") && !selectedKey) {
+      const want = params.get("topic");
+      const match = allCards.find((card) => card.topic === want);
+      if (match) selectedKey = topicParts(match.topic).join("\t");
+      if (selectedKey) startStudy(selectedKey);
+    }
   }
 
   async function load() {
@@ -328,6 +497,7 @@
     } catch (error) {}
   }
   if (!bootstrapped) load();
+  if (!allCards.length) showPane("catalog");
 
   window._pageCleanup = function () {
     pageAlive = false;

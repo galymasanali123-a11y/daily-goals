@@ -35,3 +35,22 @@ Typical path:
 heart, lungs, blood, brain, kidney, liver, bone, muscle, cell, organ, symptom, sign, fever, cough, pain, diagnosis, treatment, acute, chronic.
 
 Mark a sentence you want to remember, then add a card from the Cards tab.
+
+---
+
+## Where to go next (expanded course)
+
+This page is still the first map. The medicine course now continues past word-roots, body systems, vitals, and symptoms.
+
+**Foundation (extra lessons)**  
+History-taking (SOCRATES, PMH, drugs, allergies, social phrases) → labs and imaging words (CBC, BMP, CXR, CT vs MRI) → safety and ethics vocabulary (consent, confidentiality) → two short language cases.
+
+**Anatomy (OpenStax spine)**  
+Cells and homeostasis → tissues → skeletal → muscular → nervous → cardiovascular → respiratory → digestive → urinary and fluids → endocrine and immune.  
+Recommended textbook: OpenStax *Anatomy and Physiology 2e* (Betts et al., Rice University / OpenStax, CC BY-NC-SA 4.0). Companion in the app: `openstax-anatomy-companion.md`. Heart spatial English: `grays-anatomy-heart.md` (Gray 1918, public domain — terminology, not treatment).
+
+**Clinic language (not protocols)**  
+Infection words with OpenStax *Microbiology 2e* as further reading (`openstax-microbiology-companion.md`) → pharmacy labels (PO, IV) as vocabulary only → ABC as a language frame (call emergency services in real life) → cardio / respiratory / GI-neuro talk → eight-line case presentation → plain language and teach-back.
+
+All of it is study language and body structure. None of it is a therapy protocol or a substitute for a licensed clinician.
+

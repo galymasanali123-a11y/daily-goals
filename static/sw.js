@@ -1,4 +1,4 @@
-const CACHE_NAME = "daily-goals-v7";
+const CACHE_NAME = "daily-goals-v9";
 const APP_SHELL = [
   "/static/manifest.json",
   "/static/icons/icon-192.png",
